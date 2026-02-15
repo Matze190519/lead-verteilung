@@ -964,7 +964,7 @@ async def manual_lead(request: Request):
 
 
 # ─── Korrektur-Endpoint (einmalig für Duplikat-Fix) ─────────────────────────
-@app.post("/fix-accounts")
+@app.get("/fix-accounts")
 async def fix_accounts():
     """Einmaliger Fix: Korrigiert Partner-Konten nach doppelter Verteilung."""
     try:
