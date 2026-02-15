@@ -1,0 +1,26 @@
+# Render Blueprint – Lead-Verteilungs-Service
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: lead-verteilung
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --log-level info
+    envVars:
+      - key: WHAPI_TOKEN
+        sync: false
+      - key: GOOGLE_SHEET_NAME
+        value: Partner_Konto
+      - key: GOOGLE_SHEET_ID
+        sync: false
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false
+      - key: FB_VERIFY_TOKEN
+        value: mein_geheimer_token_2024
+      - key: FB_ACCESS_TOKEN
+        sync: false
+      - key: LEAD_PREIS
+        value: "5"
+    healthCheckPath: /health
+    plan: free
