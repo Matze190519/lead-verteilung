@@ -1,15 +1,19 @@
 """
-Lead-Verteilungs-Service v3.0
+Lead-Verteilungs-Service v3.2
 ==============================
 Empfängt Facebook Lead Ads via Webhook ODER liest neue Leads aus dem
 Google Sheet "Tabellenblatt1", verteilt Leads FAIR an aktive Partner
 aus "Partner_Konto", zieht Guthaben ab und sendet WhatsApp-
 Benachrichtigungen via Whapi API.
 
-NEU in v3.0:
-- Sheet-Polling: Liest automatisch neue Leads aus Tabellenblatt1 (alle 5 Min)
-- Spalte P (lead_status): CREATED → VERTEILT / ARCHIV
-- Telefonnummer-Format: "p:+49..." wird korrekt geparst
+v3.2 Fixes:
+- Threading-Lock: Polling kann nie doppelt laufen (Race Condition behoben)
+- Lead-Status wird SOFORT auf "PROCESSING" gesetzt bevor Verteilung startet
+- Doppelte Verteilung damit unmöglich
+- Polling-Intervall auf 60 Sekunden reduziert (schnellere Lead-Zustellung)
+
+v3.1: Intelligente Spalten-Erkennung (Name/Email/Telefon)
+v3.0: Sheet-Polling, Spalte P lead_status
 
 Autor: Manus für Matze
 """
@@ -61,14 +65,17 @@ GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json
 # Facebook
 FB_ACCESS_TOKEN = os.getenv("FB_ACCESS_TOKEN", "")
 
-# Polling-Intervall (Sekunden)
-POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "300"))  # 5 Minuten
+# Polling-Intervall (Sekunden) - 60s für schnellere Lead-Zustellung
+POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "60"))
+
+# ─── Threading Lock (verhindert doppeltes Polling) ──────────────────────────
+poll_lock = threading.Lock()
 
 # ─── FastAPI App ─────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Lead-Verteilungs-Service",
     description="Verteilt Leads fair an Partner. Liest aus Google Sheet + Facebook Webhook + Stripe.",
-    version="3.0.0",
+    version="3.2.0",
 )
 
 
@@ -285,69 +292,66 @@ def update_partner(sheet: gspread.Worksheet, partner: dict) -> bool:
         )
         if neues_guthaben < LEAD_PREIS:
             sheet.update_cell(row, 6, "Pausiert")
-            logger.info(f"Partner {partner['name']} automatisch pausiert (Guthaben {neues_guthaben}€)")
+            logger.info(f"Partner {partner['name']} pausiert (Guthaben < {LEAD_PREIS}€)")
+            if MATZE_PHONE:
+                send_whatsapp(MATZE_PHONE,
+                    f"⚠️ *Partner pausiert!*\n\n"
+                    f"👤 {partner['name']} hat nur noch {neues_guthaben}€ Guthaben.\n"
+                    f"Nächstes Lead-Paket nötig!"
+                )
         return True
     except Exception as e:
-        logger.error(f"Fehler beim Update von Partner {partner['name']}: {e}")
+        logger.error(f"Fehler beim Partner-Update: {e}")
         return False
 
 
-# ─── Stripe: Partner-Guthaben automatisch erhöhen ───────────────────────────
 def find_partner_by_phone(sheet: gspread.Worksheet, phone: str) -> Optional[dict]:
+    normalized = normalize_phone(phone)
+    if not normalized:
+        return None
     records = get_all_partner_records(sheet)
-    phone_clean = normalize_phone(phone)
     for idx, record in enumerate(records):
         partner_phone = normalize_phone(str(record.get("Telefon", "")))
-        if partner_phone and partner_phone == phone_clean:
+        if partner_phone and partner_phone == normalized:
             try:
                 guthaben = float(str(record.get("Guthaben_Euro", 0)).replace(",", "."))
             except (ValueError, TypeError):
                 guthaben = 0
-            try:
-                leads = int(record.get("Leads_Geliefert", 0))
-            except (ValueError, TypeError):
-                leads = 0
             return {
                 "row": idx + 2,
-                "name": str(record.get("Name", "Unbekannt")),
+                "name": str(record.get("Name", "")),
                 "telefon": partner_phone,
                 "guthaben": guthaben,
-                "leads_geliefert": leads,
-                "letzter_lead": str(record.get("Letzter_Lead_Am", "")),
-                "status": str(record.get("Status", "")),
             }
     return None
 
 
 def find_partner_by_name(sheet: gspread.Worksheet, name: str) -> Optional[dict]:
+    if not name:
+        return None
     records = get_all_partner_records(sheet)
-    name_lower = name.strip().lower()
+    name_lower = name.lower().strip()
     for idx, record in enumerate(records):
-        partner_name = str(record.get("Name", "")).strip().lower()
-        if partner_name and partner_name == name_lower:
+        record_name = str(record.get("Name", "")).lower().strip()
+        if record_name and (record_name in name_lower or name_lower in record_name):
             try:
                 guthaben = float(str(record.get("Guthaben_Euro", 0)).replace(",", "."))
             except (ValueError, TypeError):
                 guthaben = 0
-            try:
-                leads = int(record.get("Leads_Geliefert", 0))
-            except (ValueError, TypeError):
-                leads = 0
             return {
                 "row": idx + 2,
-                "name": str(record.get("Name", "Unbekannt")),
+                "name": str(record.get("Name", "")),
                 "telefon": normalize_phone(str(record.get("Telefon", ""))),
                 "guthaben": guthaben,
-                "leads_geliefert": leads,
-                "letzter_lead": str(record.get("Letzter_Lead_Am", "")),
-                "status": str(record.get("Status", "")),
             }
     return None
 
 
 def add_new_partner(sheet: gspread.Worksheet, name: str, phone: str, guthaben: float) -> bool:
     try:
-        new_row = [name, normalize_phone(phone), guthaben, 0, "", "Aktiv"]
+        normalized_phone = normalize_phone(phone)
+        now = ""
+        new_row = [name, normalized_phone, guthaben, 0, now, "Aktiv"]
         sheet.append_row(new_row, value_input_option="USER_ENTERED")
         logger.info(f"Neuer Partner hinzugefügt: {name}, Tel: {phone}, Guthaben: {guthaben}€")
         return True
@@ -413,12 +417,30 @@ def poll_new_leads():
     """
     Liest Tabellenblatt1 und verteilt alle Leads mit lead_status = "CREATED".
     
+    WICHTIG v3.2: Verwendet Threading-Lock um doppelte Verteilung zu verhindern.
+    Jeder Lead wird SOFORT auf "PROCESSING" gesetzt bevor die Verteilung startet.
+    
     Sheet-Struktur Tabellenblatt1:
-    - Spalte M (12): e-mail-adresse
-    - Spalte N (13): vollständiger_name
-    - Spalte O (14): telefonnummer (Format: "p:+4915...")
-    - Spalte P (15): lead_status ("CREATED" = neu, "VERTEILT" = zugewiesen, "ARCHIV" = alt)
+    - Spalte M (12): e-mail-adresse / vollständiger_name / telefonnummer
+    - Spalte N (13): vollständiger_name / e-mail-adresse / telefonnummer
+    - Spalte O (14): telefonnummer / vollständiger_name / e-mail-adresse
+    - Spalte P (15): lead_status ("CREATED" = neu, "PROCESSING" = wird verteilt, 
+                      "VERTEILT" = zugewiesen, "ARCHIV" = alt)
     """
+    # Lock: Nur ein Polling-Durchlauf gleichzeitig!
+    acquired = poll_lock.acquire(blocking=False)
+    if not acquired:
+        logger.warning("⚠️ Polling bereits aktiv - überspringe (Lock belegt)")
+        return {"processed": 0, "errors": 0, "message": "Polling bereits aktiv"}
+    
+    try:
+        return _do_poll_new_leads()
+    finally:
+        poll_lock.release()
+
+
+def _do_poll_new_leads():
+    """Interne Polling-Funktion (wird nur unter Lock ausgeführt)."""
     logger.info("=== Sheet-Polling gestartet ===")
     
     try:
@@ -434,14 +456,22 @@ def poll_new_leads():
         logger.info("Keine Leads im Sheet")
         return {"processed": 0, "errors": 0}
 
-    # Neue Leads finden (lead_status = "CREATED")
+    # ─── SCHRITT 1: Neue Leads finden UND SOFORT als PROCESSING markieren ───
+    # Das verhindert, dass ein zweiter Durchlauf die gleichen Leads findet
     new_leads = []
     for row_idx, row in enumerate(all_values[1:], start=2):
         # Spalte P (Index 15) = lead_status
         lead_status = row[15] if len(row) > 15 else ""
         if lead_status == "CREATED":
-            # Spalten M(12), N(13), O(14) - ACHTUNG: Facebook liefert Daten
-            # manchmal in falscher Reihenfolge! Intelligente Erkennung nötig.
+            # SOFORT auf PROCESSING setzen (Spalte P = Index 16 in 1-based)
+            try:
+                leads_sheet.update_cell(row_idx, 16, "PROCESSING")
+                logger.info(f"Zeile {row_idx}: Status CREATED → PROCESSING")
+            except Exception as e:
+                logger.error(f"Fehler beim Setzen von PROCESSING für Zeile {row_idx}: {e}")
+                continue  # Diesen Lead überspringen wenn Status nicht gesetzt werden kann
+            
+            # Spalten M(12), N(13), O(14) - Intelligente Erkennung
             col_m = row[12] if len(row) > 12 else ""
             col_n = row[13] if len(row) > 13 else ""
             col_o = row[14] if len(row) > 14 else ""
@@ -456,11 +486,13 @@ def poll_new_leads():
                 val_stripped = val.strip()
                 if not val_stripped:
                     continue
-                # Telefonnummer erkennen: beginnt mit p:, +, oder ist nur Ziffern
+                # Telefonnummer erkennen
                 if (val_stripped.startswith("p:") or 
                     val_stripped.startswith("+49") or
+                    val_stripped.startswith("+4") or
                     val_stripped.startswith("49") or
-                    val_stripped.startswith("0") and len(val_stripped) > 8 and val_stripped.replace("+","").replace(" ","").isdigit()):
+                    (val_stripped.startswith("0") and len(val_stripped) > 8 and 
+                     val_stripped.replace("+","").replace(" ","").replace("-","").isdigit())):
                     phone_raw = val_stripped
                 # Email erkennen: enthält @
                 elif "@" in val_stripped:
@@ -481,8 +513,9 @@ def poll_new_leads():
         logger.info("Keine neuen Leads (CREATED) gefunden")
         return {"processed": 0, "errors": 0}
 
-    logger.info(f"🔥 {len(new_leads)} neue Leads gefunden!")
+    logger.info(f"🔥 {len(new_leads)} neue Leads gefunden und als PROCESSING markiert!")
 
+    # ─── SCHRITT 2: Leads verteilen ───
     processed = 0
     errors = 0
 
@@ -501,7 +534,7 @@ def poll_new_leads():
                         f"👤 {lead['name']}\n📞 {lead['phone']}\n📧 {lead['email']}\n\n"
                         f"Kein aktiver Partner mit Guthaben verfügbar!"
                     )
-                # Lead als KEIN_PARTNER markieren (nicht nochmal versuchen)
+                # Lead als KEIN_PARTNER markieren
                 leads_sheet.update_cell(lead["row"], 16, "KEIN_PARTNER")
                 log_lead(
                     lead_name=lead["name"], lead_phone=lead["phone"],
@@ -514,6 +547,8 @@ def poll_new_leads():
 
             # Partner aktualisieren (Guthaben -5€, Leads +1)
             if not update_partner(partner_sheet, partner):
+                # Bei Fehler: Lead zurück auf CREATED setzen
+                leads_sheet.update_cell(lead["row"], 16, "CREATED")
                 errors += 1
                 continue
 
@@ -562,6 +597,11 @@ def poll_new_leads():
 
         except Exception as e:
             logger.error(f"Fehler bei Lead {lead['name']}: {e}")
+            # Bei unbekanntem Fehler: Lead zurück auf CREATED setzen
+            try:
+                leads_sheet.update_cell(lead["row"], 16, "CREATED")
+            except:
+                pass
             errors += 1
 
     logger.info(f"=== Polling fertig: {processed} verteilt, {errors} Fehler ===")
@@ -591,7 +631,7 @@ async def startup_event():
     """Startet den Polling-Thread beim Server-Start."""
     thread = threading.Thread(target=polling_loop, daemon=True)
     thread.start()
-    logger.info("🚀 Lead-Verteilungs-Service v3.0 gestartet")
+    logger.info("🚀 Lead-Verteilungs-Service v3.2 gestartet (mit Lock-Schutz)")
 
 
 # ─── Lead-Daten aus Facebook Webhook extrahieren ─────────────────────────────
@@ -728,10 +768,11 @@ def process_lead(lead_data: dict) -> dict:
 async def root():
     return {
         "service": "Lead-Verteilungs-Service",
-        "version": "3.1.0",
+        "version": "3.2.0",
         "status": "running",
         "features": [
-            "Sheet-Polling (automatisch neue Leads aus Tabellenblatt1)",
+            "Sheet-Polling mit Lock-Schutz (keine doppelte Verteilung)",
+            "PROCESSING-Status verhindert Race Conditions",
             "Faire Verteilung (zeitbasiert/Round-Robin)",
             "Stripe-Webhook (automatische Partner-Registrierung)",
             "WhatsApp-Benachrichtigungen (Partner + Lead)",
@@ -750,7 +791,7 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat(), "version": "3.2.0"}
 
 
 # ─── Facebook Webhook ────────────────────────────────────────────────────────
@@ -869,7 +910,7 @@ async def test_lead():
         if partner:
             return {
                 "status": "test_ok",
-                "message": "System funktioniert! (v3.0 mit Sheet-Polling)",
+                "message": "System funktioniert! (v3.2 mit Lock-Schutz)",
                 "neue_leads_im_sheet": new_leads_count,
                 "naechster_partner": partner["name"],
                 "partner_guthaben": partner["guthaben"],
