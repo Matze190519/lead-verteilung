@@ -440,14 +440,38 @@ def poll_new_leads():
         # Spalte P (Index 15) = lead_status
         lead_status = row[15] if len(row) > 15 else ""
         if lead_status == "CREATED":
-            # Spalte M (12) = email, N (13) = name, O (14) = telefon
-            email = row[12] if len(row) > 12 else ""
-            name = row[13] if len(row) > 13 else ""
-            phone_raw = row[14] if len(row) > 14 else ""
+            # Spalten M(12), N(13), O(14) - ACHTUNG: Facebook liefert Daten
+            # manchmal in falscher Reihenfolge! Intelligente Erkennung nötig.
+            col_m = row[12] if len(row) > 12 else ""
+            col_n = row[13] if len(row) > 13 else ""
+            col_o = row[14] if len(row) > 14 else ""
+            
+            # Alle 3 Werte sammeln und intelligent zuordnen
+            raw_values = [col_m, col_n, col_o]
+            name = "Unbekannt"
+            email = ""
+            phone_raw = ""
+            
+            for val in raw_values:
+                val_stripped = val.strip()
+                if not val_stripped:
+                    continue
+                # Telefonnummer erkennen: beginnt mit p:, +, oder ist nur Ziffern
+                if (val_stripped.startswith("p:") or 
+                    val_stripped.startswith("+49") or
+                    val_stripped.startswith("49") or
+                    val_stripped.startswith("0") and len(val_stripped) > 8 and val_stripped.replace("+","").replace(" ","").isdigit()):
+                    phone_raw = val_stripped
+                # Email erkennen: enthält @
+                elif "@" in val_stripped:
+                    email = val_stripped
+                # Alles andere = Name
+                else:
+                    name = val_stripped
             
             new_leads.append({
                 "row": row_idx,
-                "name": name or "Unbekannt",
+                "name": name,
                 "email": email,
                 "phone_raw": phone_raw,
                 "phone": normalize_phone(phone_raw),
@@ -704,7 +728,7 @@ def process_lead(lead_data: dict) -> dict:
 async def root():
     return {
         "service": "Lead-Verteilungs-Service",
-        "version": "3.0.0",
+        "version": "3.1.0",
         "status": "running",
         "features": [
             "Sheet-Polling (automatisch neue Leads aus Tabellenblatt1)",
