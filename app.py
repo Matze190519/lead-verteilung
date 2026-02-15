@@ -153,6 +153,10 @@ def send_whatsapp(phone: str, message: str) -> dict:
         logger.error("WHAPI_TOKEN nicht gesetzt!")
         return {"error": "WHAPI_TOKEN nicht konfiguriert"}
 
+    if not phone or len(phone) < 10:
+        logger.error(f"Ungültige Telefonnummer: '{phone}'")
+        return {"error": f"Ungültige Telefonnummer: {phone}"}
+
     to = f"{phone}@s.whatsapp.net"
     headers = {
         "Authorization": f"Bearer {WHAPI_TOKEN}",
@@ -162,14 +166,21 @@ def send_whatsapp(phone: str, message: str) -> dict:
     payload = {"to": to, "body": message, "typing_time": 2}
 
     try:
+        logger.info(f"WhatsApp senden an {phone} (to={to})...")
         response = requests.post(WHAPI_URL, json=payload, headers=headers, timeout=30)
+        logger.info(f"WhatsApp Response Status: {response.status_code}")
+        logger.info(f"WhatsApp Response Body: {response.text[:500]}")
         response.raise_for_status()
         result = response.json()
         logger.info(f"WhatsApp gesendet an {phone}: OK")
         return result
     except requests.exceptions.RequestException as e:
-        logger.error(f"WhatsApp-Fehler an {phone}: {e}")
-        return {"error": str(e)}
+        # Versuche den Response-Body zu loggen für bessere Fehleranalyse
+        error_body = ""
+        if hasattr(e, 'response') and e.response is not None:
+            error_body = e.response.text[:500]
+        logger.error(f"WhatsApp-Fehler an {phone}: {e} | Response: {error_body}")
+        return {"error": str(e), "response_body": error_body}
 
 
 # ─── Telefonnummer normalisieren ─────────────────────────────────────────────
@@ -1015,6 +1026,47 @@ async def fix_accounts():
         return {"status": "ok", "fixes": results}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+# ─── Test WhatsApp Endpoint ──────────────────────────────────────────────────
+@app.get("/test-whatsapp")
+async def test_whatsapp():
+    """Sendet eine Test-WhatsApp-Nachricht um die API zu prüfen."""
+    test_phone = MATZE_PHONE  # Sende an Matze als Test
+    if not test_phone:
+        return {"error": "MATZE_PHONE nicht gesetzt"}
+    
+    test_msg = "Test-Nachricht vom Lead-Verteilungs-System. WhatsApp-Versand funktioniert!"
+    result = send_whatsapp(test_phone, test_msg)
+    return {
+        "test_phone": test_phone,
+        "result": result,
+        "whapi_url": WHAPI_URL,
+        "has_token": bool(WHAPI_TOKEN),
+    }
+
+
+@app.get("/test-whatsapp-lead/{phone}")
+async def test_whatsapp_lead(phone: str):
+    """Sendet eine Test-WhatsApp-Nachricht an eine beliebige Nummer."""
+    normalized = normalize_phone(phone)
+    if not normalized:
+        return {"error": "Ungültige Telefonnummer"}
+    
+    test_msg = (
+        f"Hallo! 👋\n\n"
+        f"Dies ist eine Test-Nachricht vom Lead-Verteilungs-System.\n"
+        f"Dein persönlicher Ansprechpartner wird sich in Kürze bei dir melden.\n\n"
+        f"Wir freuen uns auf das Gespräch! 😊"
+    )
+    result = send_whatsapp(normalized, test_msg)
+    return {
+        "original_phone": phone,
+        "normalized_phone": normalized,
+        "result": result,
+        "whapi_url": WHAPI_URL,
+        "has_token": bool(WHAPI_TOKEN),
+    }
 
 
 # ─── Server starten ──────────────────────────────────────────────────────────
