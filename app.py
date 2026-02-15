@@ -963,6 +963,60 @@ async def manual_lead(request: Request):
     return result
 
 
+# ─── Korrektur-Endpoint (einmalig für Duplikat-Fix) ─────────────────────────
+@app.post("/fix-accounts")
+async def fix_accounts():
+    """Einmaliger Fix: Korrigiert Partner-Konten nach doppelter Verteilung."""
+    try:
+        sheet = get_sheet()
+        results = []
+        
+        # Alle Partner lesen
+        all_records = get_all_partner_records(sheet)
+        for idx, record in enumerate(all_records):
+            name = record.get("Name", "")
+            row = idx + 2
+            
+            if "Michael" in name:
+                # Michael: Guthaben +5€ (35→40), Leads -1 (3→2)
+                current_guthaben = float(str(record.get("Guthaben_Euro", 0)).replace(",", "."))
+                current_leads = int(record.get("Leads_Geliefert", 0))
+                new_guthaben = current_guthaben + 5
+                new_leads = max(current_leads - 1, 0)
+                sheet.update_cell(row, 3, new_guthaben)
+                sheet.update_cell(row, 4, new_leads)
+                results.append(f"Michael: {current_guthaben}€→{new_guthaben}€, {current_leads}→{new_leads} Leads")
+            
+            elif "Mathias" in name or "Matze" in name:
+                # Mathias: Guthaben +5€ (490→495), Leads -1 (2→1)
+                current_guthaben = float(str(record.get("Guthaben_Euro", 0)).replace(",", "."))
+                current_leads = int(record.get("Leads_Geliefert", 0))
+                new_guthaben = current_guthaben + 5
+                new_leads = max(current_leads - 1, 0)
+                sheet.update_cell(row, 3, new_guthaben)
+                sheet.update_cell(row, 4, new_leads)
+                results.append(f"Mathias: {current_guthaben}€→{new_guthaben}€, {current_leads}→{new_leads} Leads")
+        
+        # Leads_Log: Duplikate markieren
+        log_sheet = get_leads_log_sheet()
+        log_values = log_sheet.get_all_values()
+        seen_leads = set()
+        duplicates_fixed = 0
+        for row_idx, row in enumerate(log_values[1:], start=2):
+            lead_key = f"{row[1]}_{row[2]}"  # Name + Telefon
+            if lead_key in seen_leads:
+                log_sheet.update_cell(row_idx, 10, "DUPLIKAT_KORRIGIERT")
+                duplicates_fixed += 1
+            else:
+                seen_leads.add(lead_key)
+        
+        results.append(f"{duplicates_fixed} Duplikate im Log markiert")
+        
+        return {"status": "ok", "fixes": results}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 # ─── Server starten ──────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
