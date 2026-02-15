@@ -603,6 +603,19 @@ def _do_poll_new_leads():
             logger.info(f"✅ Lead {lead['name']} → {partner['name']} verteilt")
             processed += 1
 
+            # Matze benachrichtigen über erfolgreiche Verteilung
+            if MATZE_PHONE:
+                matze_info = (
+                    f"🔔 *LEAD VERTEILT (Facebook Formular)*\n\n"
+                    f"👤 *Lead:* {lead['name']}\n"
+                    f"📞 *Telefon:* {lead['phone']}\n"
+                    f"📧 *Email:* {lead['email']}\n\n"
+                    f"➡️ *Zugewiesen an:* {partner['name']}\n"
+                    f"💰 *Partner-Guthaben:* {neues_guthaben}€\n\n"
+                    f"✅ Dieser Lead wurde automatisch über das Facebook-Formular verteilt."
+                )
+                send_whatsapp(MATZE_PHONE, matze_info)
+
             # Kurze Pause zwischen Leads (API Rate Limits)
             time.sleep(2)
 
