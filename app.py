@@ -578,11 +578,16 @@ def _do_poll_new_leads():
             # WhatsApp an Lead
             lead_wa_result = {"skipped": True}
             if lead["phone"]:
+                # Partner-Telefon formatieren für Anzeige
+                partner_tel_display = partner['telefon']
+                if partner_tel_display.startswith('49'):
+                    partner_tel_display = '+' + partner_tel_display
                 lead_msg = (
-                    f"Hallo {lead['name']}! 👋\n\n"
+                    f"Hallo {lead['name']}! \U0001f44b\n\n"
                     f"Vielen Dank für dein Interesse! Dein persönlicher Ansprechpartner "
                     f"*{partner['name']}* wird sich in Kürze bei dir melden.\n\n"
-                    f"Wir freuen uns auf das Gespräch! 😊"
+                    f"\U0001f4de Telefon: {partner_tel_display}\n\n"
+                    f"Wir freuen uns auf das Gespräch! \U0001f60a"
                 )
                 lead_wa_result = send_whatsapp(lead["phone"], lead_msg)
 
@@ -765,11 +770,16 @@ def process_lead(lead_data: dict) -> dict:
 
     lead_wa_result = {"skipped": True}
     if lead_phone:
+        # Partner-Telefon formatieren für Anzeige
+        partner_tel_display = partner['telefon']
+        if partner_tel_display.startswith('49'):
+            partner_tel_display = '+' + partner_tel_display
         lead_msg = (
-            f"Hallo {lead_name}! 👋\n\n"
+            f"Hallo {lead_name}! \U0001f44b\n\n"
             f"Vielen Dank für dein Interesse! Dein persönlicher Ansprechpartner "
             f"*{partner['name']}* wird sich in Kürze bei dir melden.\n\n"
-            f"Wir freuen uns auf das Gespräch! 😊"
+            f"\U0001f4de Telefon: {partner_tel_display}\n\n"
+            f"Wir freuen uns auf das Gespräch! \U0001f60a"
         )
         lead_wa_result = send_whatsapp(lead_phone, lead_msg)
 
