@@ -75,7 +75,7 @@ poll_lock = threading.Lock()
 app = FastAPI(
     title="Lead-Verteilungs-Service",
     description="Verteilt Leads fair an Partner. Liest aus Google Sheet + Facebook Webhook + Stripe.",
-    version="3.5.0",
+    version="3.6.0",
 )
 
 
@@ -802,7 +802,7 @@ def process_lead(lead_data: dict) -> dict:
 async def root():
     return {
         "service": "Lead-Verteilungs-Service",
-        "version": "3.2.0",
+        "version": "3.6.0",
         "status": "running",
         "features": [
             "Sheet-Polling mit Lock-Schutz (keine doppelte Verteilung)",
@@ -825,7 +825,7 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat(), "version": "3.2.0"}
+    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat(), "version": "3.6.0"}
 
 
 # ─── Facebook Webhook ────────────────────────────────────────────────────────
