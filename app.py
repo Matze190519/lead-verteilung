@@ -75,7 +75,7 @@ poll_lock = threading.Lock()
 app = FastAPI(
     title="Lead-Verteilungs-Service",
     description="Verteilt Leads fair an Partner. Liest aus Google Sheet + Facebook Webhook + Stripe.",
-    version="3.2.0",
+    version="3.5.0",
 )
 
 
