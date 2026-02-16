@@ -1082,6 +1082,56 @@ async def test_whatsapp_lead(phone: str):
     }
 
 
+# ─── Partner-Freischaltung (Ersatz für Wassenger) ────────────────────────────
+@app.post("/partner-freischaltung")
+async def partner_freischaltung(request: Request):
+    """
+    Empfängt Partner-Daten von Botpress/Lina und sendet eine
+    WhatsApp-Benachrichtigung an Matze zur manuellen Freischaltung.
+
+    Ersetzt die bisherige Wassenger-Automation.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    partner_name = payload.get("name", "Unbekannt")
+    partnernummer = payload.get("partnernummer", "Nicht angegeben")
+    telefon = payload.get("telefon", "Nicht angegeben")
+
+    logger.info(f"=== Partner-Freischaltung angefragt: {partner_name} | {partnernummer} ===")
+
+    if not MATZE_PHONE:
+        logger.error("MATZE_PHONE nicht gesetzt!")
+        return {"status": "error", "message": "Benachrichtigungs-Nummer nicht konfiguriert"}
+
+    # WhatsApp an Matze senden
+    nachricht = (
+        f"\U0001f514 *Neue Partner-Freischaltung angefragt!*\n\n"
+        f"\U0001f464 *Name:* {partner_name}\n"
+        f"\U0001f194 *Partnernummer:* {partnernummer}\n"
+        f"\U0001f4de *Telefon:* {telefon}\n\n"
+        f"Bitte prüfe, ob der Partner in deinem Team ist und schalte ihn frei."
+    )
+
+    result = send_whatsapp(MATZE_PHONE, nachricht)
+
+    if "error" in result:
+        logger.error(f"WhatsApp-Fehler bei Partner-Freischaltung: {result}")
+        return {
+            "status": "error",
+            "message": "WhatsApp konnte nicht gesendet werden",
+            "detail": result
+        }
+
+    logger.info(f"Partner-Freischaltung: WhatsApp an Matze gesendet für {partner_name}")
+    return {
+        "status": "success",
+        "message": f"Benachrichtigung für {partner_name} gesendet"
+    }
+
+
 # ─── Server starten ──────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
