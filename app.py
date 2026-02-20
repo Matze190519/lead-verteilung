@@ -1,3 +1,15 @@
+"""
+Lead-Verteilungs-Service v4.0 (META API - OFFICIAL)
+===================================================
+Nutzt die OFFIZIELLE WhatsApp Cloud API (Lina).
+Kein Whapi mehr nötig. 100% Sicher vor Sperren.
+
+Features:
+- Sendet über Meta Graph API (Lina)
+- Stripe & Sheet Integration
+- Safe Mode (keine Kaltakquise an Kunden)
+"""
+
 import os
 import json
 import logging
@@ -16,8 +28,11 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("lead-verteilung")
 
-WHAPI_TOKEN = os.getenv("WHAPI_TOKEN", "")
-WHAPI_URL = "https://gate.whapi.cloud/messages/text"
+# META API DATEN (Lina)
+META_TOKEN = "EAARgaZCn3eoYBO0Tr9nSqfmJYOcx3gx3NAzSdwekRpZB5rfmWH2poZAvKSXXVBdR0HDqiXAEbfESzfejzSYLTCkhZAxs0bVZCMufcy51ZBN16zkDlpy8bcaUL5Omu6FTLW37O30I9uO51HSgfZBZBYz6qPEQ49RVEMWNrJmnrvvmrwCgAlJaJB7eHk2GvDdU8pKYkwZDZD"
+META_PHONE_ID = "623007617563961"
+META_URL = f"https://graph.facebook.com/v22.0/{META_PHONE_ID}/messages"
+
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1wVevVuP1sm_2g7eg37rCYSVSoF_T6rjNj89Qkoh9DIY")
 FB_VERIFY_TOKEN = os.getenv("FB_VERIFY_TOKEN", "mein_geheimer_token_2024")
 LEAD_PREIS = float(os.getenv("LEAD_PREIS", "5"))
@@ -29,7 +44,7 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 
 poll_lock = threading.Lock()
-app = FastAPI(title="Lead-Verteilungs-Service v3.6 (SAFE)")
+app = FastAPI(title="Lead-Verteilungs-Service v4.0 (META)")
 
 # ─── GOOGLE SHEETS ───
 def get_spreadsheet():
@@ -62,14 +77,34 @@ def log_lead(lead_name, lead_phone, lead_email, partner_name, partner_phone, gut
     except Exception as e:
         logger.error(f"Log Error: {e}")
 
-# ─── WHAPI ───
+# ─── META WHATSAPP (OFFICIAL) ───
 def send_whatsapp(phone, message):
-    if not WHAPI_TOKEN or not phone: return {"error": "No Token/Phone"}
-    to = f"{phone}@s.whatsapp.net"
+    if not phone: return {"error": "No Phone"}
+    
+    # Nummer formatieren für Meta (ohne +)
+    to = phone.replace("+", "").replace(" ", "")
+    
+    headers = {
+        "Authorization": f"Bearer {META_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "text",
+        "text": {"preview_url": False, "body": message}
+    }
+
     try:
-        res = requests.post(WHAPI_URL, json={"to": to, "body": message}, headers={"Authorization": f"Bearer {WHAPI_TOKEN}"})
+        res = requests.post(META_URL, json=payload, headers=headers, timeout=30)
+        # Log nur bei Fehler, sonst ruhig bleiben
+        if res.status_code >= 400:
+            logger.error(f"Meta Error: {res.text}")
         return res.json()
     except Exception as e:
+        logger.error(f"WhatsApp Exception: {e}")
         return {"error": str(e)}
 
 def normalize_phone(phone):
@@ -124,16 +159,16 @@ def process_lead_distribution(name, phone, email, row_idx=None):
 
         new_bal = update_partner(sheet, partner)
         
-        # Info an Partner
+        # 1. Info an Partner
         msg_p = f"🔔 *Neuer Lead!*\n👤 {name}\n📞 {phone}\n📧 {email}\n💰 Rest: {new_bal}€"
         wa = send_whatsapp(partner["phone"], msg_p)
         
-        # Info an Admin
+        # 2. Info an Admin
         if MATZE_PHONE:
             msg_a = f"✅ Lead verteilt: {name} -> {partner['name']}"
             send_whatsapp(MATZE_PHONE, msg_a)
             
-        # SAFE MODE: KEINE Nachricht an Lead.
+        # 3. SAFE MODE: KEINE Nachricht an Lead.
         
         if row_idx: get_leads_sheet().update_cell(row_idx, 16, "VERTEILT")
         log_lead(name, phone, email, partner["name"], partner["phone"], new_bal, "error" not in wa, "VERTEILT")
@@ -170,7 +205,7 @@ def start_poll():
 
 # ─── WEBHOOKS ───
 @app.get("/")
-def index(): return {"status": "running v3.6"}
+def index(): return {"status": "running v4.0-META"}
 
 @app.get("/health")
 def health(): return {"status": "ok"}
@@ -203,8 +238,6 @@ async def stripe_wh(request: Request, bg: BackgroundTasks):
 def process_stripe_payment(name, phone, email, amount):
     try:
         sheet = get_sheet()
-        p = find_best_partner(sheet) # Placeholder search logic needed here? No, find specific partner.
-        # Quick fix for stripe logic:
         records = get_all_partner_records(sheet)
         target = None
         norm_phone = normalize_phone(phone)
