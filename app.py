@@ -1,10 +1,6 @@
 """
-Lead-Verteilungs-Service v4.0 META (WORKING)
-=============================================
-- Meta API fur WhatsApp (Lina)
-- Stripe funktioniert
+Lead-Verteilungs-Service v4.0 FINAL
 """
-
 import os
 import json
 import logging
@@ -17,10 +13,8 @@ import stripe
 import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
-from fastapi.responses import JSONResponse
 
 load_dotenv()
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("lead-verteilung")
 
@@ -29,21 +23,27 @@ META_TOKEN = os.getenv("META_TOKEN", "")
 META_PHONE_ID = os.getenv("META_PHONE_ID", "")
 META_URL = f"https://graph.facebook.com/v18.0/{META_PHONE_ID}/messages"
 
-# Google Sheets
-GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
-GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
-
 # Stripe
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 
 # Config
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
 LEAD_PREIS = float(os.getenv("LEAD_PREIS", "5"))
 MATZE_PHONE = os.getenv("MATZE_PHONE", "+491715060008")
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "60"))
 
 poll_lock = threading.Lock()
 app = FastAPI(title="Lead-Verteilung v4.0", version="4.0.0")
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+@app.get("/")
+def root():
+    return {"status": "v4.0 running"}
 
 def get_sheet():
     if GOOGLE_CREDENTIALS_JSON:
@@ -243,10 +243,6 @@ def poll_loop():
 @app.on_event("startup")
 def start():
     threading.Thread(target=poll_loop, daemon=True).start()
-
-@app.get("/")
-def health():
-    return {"status": "v4.0 running"}
 
 if __name__ == "__main__":
     import uvicorn
