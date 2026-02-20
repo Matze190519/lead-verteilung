@@ -52,20 +52,21 @@ GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json
 # Facebook
 FB_ACCESS_TOKEN = os.getenv("FB_ACCESS_TOKEN", "")
 
-# Polling-Intervall (Sekunden)
+# Polling-Intervall (Sekunden) - 60s für schnellere Lead-Zustellung
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "60"))
 
-# ─── Threading Lock ──────────────────────────
+# ─── Threading Lock (verhindert doppeltes Polling) ──────────────────────────
 poll_lock = threading.Lock()
 
-# ─── FastAPI App ─────────────────────────────
+# ─── FastAPI App ─────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Lead-Verteilungs-Service",
     description="Verteilt Leads fair an Partner. Liest aus Google Sheet + Facebook Webhook + Stripe.",
     version="3.6-META",
 )
 
-# ─── Google Sheets Client ────────────────────
+
+# ─── Google Sheets Client ────────────────────────────────────────────────────
 def get_google_client() -> gspread.Client:
     if GOOGLE_CREDENTIALS_JSON:
         creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
@@ -74,11 +75,14 @@ def get_google_client() -> gspread.Client:
         gc = gspread.service_account(filename=GOOGLE_CREDENTIALS_FILE)
     return gc
 
+
 def get_spreadsheet() -> gspread.Spreadsheet:
     gc = get_google_client()
     return gc.open_by_key(GOOGLE_SHEET_ID)
 
+
 def get_sheet() -> gspread.Worksheet:
+    """Öffnet Partner_Konto Tab."""
     spreadsheet = get_spreadsheet()
     try:
         return spreadsheet.worksheet("Partner_Konto")
@@ -86,11 +90,15 @@ def get_sheet() -> gspread.Worksheet:
         logger.warning("Tab 'Partner_Konto' nicht gefunden, verwende erstes Sheet")
         return spreadsheet.sheet1
 
+
 def get_leads_sheet() -> gspread.Worksheet:
+    """Öffnet Tabellenblatt1 (wo die Facebook-Leads landen)."""
     spreadsheet = get_spreadsheet()
     return spreadsheet.worksheet("Tabellenblatt1")
 
+
 def get_leads_log_sheet() -> gspread.Worksheet:
+    """Öffnet oder erstellt den Leads_Log Tab."""
     spreadsheet = get_spreadsheet()
     try:
         return spreadsheet.worksheet("Leads_Log")
@@ -105,9 +113,11 @@ def get_leads_log_sheet() -> gspread.Worksheet:
         ws.append_row(headers, value_input_option="USER_ENTERED")
         return ws
 
+
 def log_lead(lead_name: str, lead_phone: str, lead_email: str,
              partner_name: str, partner_phone: str, guthaben_nachher: float,
              wa_partner_ok: bool, wa_lead_ok: bool, status: str):
+    """Schreibt einen Lead-Eintrag in den Leads_Log Tab."""
     try:
         log_sheet = get_leads_log_sheet()
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -122,6 +132,7 @@ def log_lead(lead_name: str, lead_phone: str, lead_email: str,
         logger.info(f"Lead geloggt: {lead_name} → {partner_name} ({status})")
     except Exception as e:
         logger.error(f"Fehler beim Lead-Logging: {e}")
+
 
 # ─── META WHATSAPP (NUR DIESE FUNKTION GEÄNDERT) ─────────────────────────────
 def send_whatsapp(phone: str, message: str) -> dict:
@@ -174,12 +185,19 @@ def send_whatsapp(phone: str, message: str) -> dict:
         logger.error(f"WhatsApp-Fehler an {phone}: {e} | Response: {error_body}")
         return {"error": str(e), "response_body": error_body}
 
+
 # ─── Telefonnummer normalisieren ─────────────────────────────────────────────
 def normalize_phone(phone: str) -> str:
+    """
+    Normalisiert Telefonnummer auf Format 49... (ohne +, ohne Leerzeichen).
+    Erkennt auch das Format "p:+4915..." aus dem Google Sheet.
+    """
     if not phone:
         return ""
+    # Prefix "p:" entfernen (Facebook/Sheet-Format)
     if phone.startswith("p:"):
         phone = phone[2:]
+    # Nur Ziffern behalten
     phone = "".join(c for c in phone if c.isdigit())
     if phone.startswith("0"):
         phone = "49" + phone[1:]
@@ -187,8 +205,10 @@ def normalize_phone(phone: str) -> str:
         phone = "49" + phone
     return phone
 
+
 # ─── Partner-Suche und Update ────────────────────────────────────────────────
 def get_all_partner_records(sheet: gspread.Worksheet) -> list:
+    """Liest alle Partner-Daten aus Spalten A-F."""
     headers = ["Name", "Telefon", "Guthaben_Euro", "Leads_Geliefert", "Letzter_Lead_Am", "Status"]
     all_values = sheet.get_all_values()
     if len(all_values) <= 1:
@@ -204,7 +224,16 @@ def get_all_partner_records(sheet: gspread.Worksheet) -> list:
             records.append(record)
     return records
 
+
 def find_best_partner(sheet: gspread.Worksheet) -> Optional[dict]:
+    """
+    FAIRE VERTEILUNG (Round-Robin / Zeitbasiert):
+    - Status = 'Aktiv'
+    - Guthaben_Euro >= Lead-Preis
+    - Sortiert nach Letzter_Lead_Am ASC (wer am längsten wartet, ist dran)
+    - Neue Partner (leeres Datum) kommen ZUERST dran
+    - Bei Gleichstand: Wenigste Leads zuerst
+    """
     try:
         all_records = get_all_partner_records(sheet)
     except Exception as e:
@@ -229,7 +258,7 @@ def find_best_partner(sheet: gspread.Worksheet) -> Optional[dict]:
 
         letzter_lead = str(record.get("Letzter_Lead_Am", "")).strip()
 
-        if status == "Aktiv" and guthaben >= LEAD_PREIS:
+        if status == "Aktiv" and guthaben > LEAD_PREIS - 0.01:
             aktive_partner.append({
                 "row": idx + 2,
                 "name": str(record.get("Name", "Unbekannt")),
@@ -252,10 +281,16 @@ def find_best_partner(sheet: gspread.Worksheet) -> Optional[dict]:
 
     aktive_partner.sort(key=sort_key)
     best = aktive_partner[0]
-    logger.info(f"Bester Partner: {best['name']} (Zeile {best['row']})")
+    logger.info(
+        f"Bester Partner (fair): {best['name']} (Zeile {best['row']}, "
+        f"Letzter Lead: {best['letzter_lead'] or 'NIE'}, "
+        f"Leads: {best['leads_geliefert']}, Guthaben: {best['guthaben']}€)"
+    )
     return best
 
+
 def update_partner(sheet: gspread.Worksheet, partner: dict) -> bool:
+    """Aktualisiert den Partner: Guthaben -LEAD_PREIS, Leads +1, Datum = jetzt."""
     row = partner["row"]
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     try:
@@ -264,19 +299,25 @@ def update_partner(sheet: gspread.Worksheet, partner: dict) -> bool:
         neue_leads = partner["leads_geliefert"] + 1
         sheet.update_cell(row, 4, neue_leads)
         sheet.update_cell(row, 5, now)
-        logger.info(f"Partner {partner['name']} aktualisiert: Guthaben {partner['guthaben']}€ → {neues_guthaben}€")
-        
+        logger.info(
+            f"Partner {partner['name']} aktualisiert: "
+            f"Guthaben {partner['guthaben']}€ → {neues_guthaben}€, "
+            f"Leads {partner['leads_geliefert']} → {neue_leads}"
+        )
         if neues_guthaben < LEAD_PREIS:
             sheet.update_cell(row, 6, "Pausiert")
-            logger.info(f"Partner {partner['name']} pausiert")
+            logger.info(f"Partner {partner['name']} pausiert (Guthaben < {LEAD_PREIS}€)")
             if MATZE_PHONE:
                 send_whatsapp(MATZE_PHONE,
-                    f"⚠️ Partner {partner['name']} pausiert (Guthaben: {neues_guthaben}€)"
+                    f"⚠️ *Partner pausiert!*\\n\\n"
+                    f"👤 {partner['name']} hat nur noch {neues_guthaben}€ Guthaben.\\n"
+                    f"Nächstes Lead-Paket nötig!"
                 )
         return True
     except Exception as e:
         logger.error(f"Fehler beim Partner-Update: {e}")
         return False
+
 
 def find_partner_by_phone(sheet: gspread.Worksheet, phone: str) -> Optional[dict]:
     normalized = normalize_phone(phone)
@@ -285,40 +326,5 @@ def find_partner_by_phone(sheet: gspread.Worksheet, phone: str) -> Optional[dict
     records = get_all_partner_records(sheet)
     for idx, record in enumerate(records):
         partner_phone = normalize_phone(str(record.get("Telefon", "")))
-        if partner_phone and partner_phone == normalized:
-            try:
-                guthaben = float(str(record.get("Guthaben_Euro", 0)).replace(",", "."))
-            except (ValueError, TypeError):
-                guthaben = 0
-            return {
-                "row": idx + 2,
-                "name": str(record.get("Name", "")),
-                "telefon": partner_phone,
-                "guthaben": guthaben,
-            }
-    return None
-
-def find_partner_by_name(sheet: gspread.Worksheet, name: str) -> Optional[dict]:
-    if not name:
-        return None
-    records = get_all_partner_records(sheet)
-    name_lower = name.lower().strip()
-    for idx, record in enumerate(records):
-        record_name = str(record.get("Name", "")).lower().strip()
-        if record_name and (record_name in name_lower or name_lower in record_name):
-            try:
-                guthaben = float(str(record.get("Guthaben_Euro", 0)).replace(",", "."))
-            except (ValueError, TypeError):
-                guthaben = 0
-            return {
-                "row": idx + 2,
-                "name": str(record.get("Name", "")),
-                "telefon": normalize_phone(str(record.get("Telefon", ""))),
-                "guthaben": guthaben,
-            }
-    return None
-
-def add_new_partner(sheet: gspread.Worksheet, name: str, phone: str, guthaben: float) -> bool:
-    try:
-        normalized_phone = normalize_phone(phone
+        if partner_phone and
 ...(truncated)...
