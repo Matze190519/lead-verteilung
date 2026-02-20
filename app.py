@@ -1,22 +1,18 @@
 """
-Lead-Verteilungs-Service v3.2 (SAFE MODE)
-=========================================
+Lead-Verteilungs-Service v3.3 (SAFE MODE - FIX)
+===============================================
 Empfängt Facebook Lead Ads via Webhook ODER liest neue Leads aus dem
 Google Sheet "Tabellenblatt1", verteilt Leads FAIR an aktive Partner
 aus "Partner_Konto", zieht Guthaben ab und sendet WhatsApp-
 Benachrichtigungen via Whapi API.
 
+v3.3 Fix:
+- Syntax Error behoben (Klammern/Einrückung)
+- SAFE MODE aktiv: Keine Nachrichten an Leads (nur Partner/Admin)
+
 v3.2 Fixes:
-- Threading-Lock: Polling kann nie doppelt laufen (Race Condition behoben)
-- Lead-Status wird SOFORT auf "PROCESSING" gesetzt bevor Verteilung startet
-- Doppelte Verteilung damit unmöglich
-- Polling-Intervall auf 60 Sekunden reduziert (schnellere Lead-Zustellung)
-- SAFE MODE: Keine Nachrichten an Leads (nur Partner/Admin)
-
-v3.1: Intelligente Spalten-Erkennung (Name/Email/Telefon)
-v3.0: Sheet-Polling, Spalte P lead_status
-
-Autor: Manus für Matze
+- Threading-Lock: Polling kann nie doppelt laufen
+- Lead-Status SOFORT auf PROCESSING
 """
 
 import os
@@ -66,10 +62,10 @@ GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json
 # Facebook
 FB_ACCESS_TOKEN = os.getenv("FB_ACCESS_TOKEN", "")
 
-# Polling-Intervall (Sekunden) - 60s für schnellere Lead-Zustellung
+# Polling-Intervall (Sekunden)
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "60"))
 
-# ─── Threading Lock (verhindert doppeltes Polling) ──────────────────────────
+# ─── Threading Lock ─────────────────────────────────────────────────────────
 poll_lock = threading.Lock()
 
 # ─── FastAPI App ─────────────────────────────────────────────────────────────
@@ -169,33 +165,25 @@ def send_whatsapp(phone: str, message: str) -> dict:
     try:
         logger.info(f"WhatsApp senden an {phone} (to={to})...")
         response = requests.post(WHAPI_URL, json=payload, headers=headers, timeout=30)
-        logger.info(f"WhatsApp Response Status: {response.status_code}")
-        logger.info(f"WhatsApp Response Body: {response.text[:500]}")
+        # logger.info(f"WhatsApp Response Status: {response.status_code}")
         response.raise_for_status()
         result = response.json()
         logger.info(f"WhatsApp gesendet an {phone}: OK")
         return result
     except requests.exceptions.RequestException as e:
-        # Versuche den Response-Body zu loggen für bessere Fehleranalyse
         error_body = ""
         if hasattr(e, 'response') and e.response is not None:
             error_body = e.response.text[:500]
-        logger.error(f"WhatsApp-Fehler an {phone}: {e} | Response: {error_body}")
+        logger.error(f"WhatsApp-Fehler an {phone}: {e}")
         return {"error": str(e), "response_body": error_body}
 
 
 # ─── Telefonnummer normalisieren ─────────────────────────────────────────────
 def normalize_phone(phone: str) -> str:
-    """
-    Normalisiert Telefonnummer auf Format 49... (ohne +, ohne Leerzeichen).
-    Erkennt auch das Format "p:+4915..." aus dem Google Sheet.
-    """
     if not phone:
         return ""
-    # Prefix "p:" entfernen (Facebook/Sheet-Format)
     if phone.startswith("p:"):
         phone = phone[2:]
-    # Nur Ziffern behalten
     phone = "".join(c for c in phone if c.isdigit())
     if phone.startswith("0"):
         phone = "49" + phone[1:]
@@ -206,12 +194,10 @@ def normalize_phone(phone: str) -> str:
 
 # ─── Partner-Suche und Update ────────────────────────────────────────────────
 def get_all_partner_records(sheet: gspread.Worksheet) -> list:
-    """Liest alle Partner-Daten aus Spalten A-F."""
     headers = ["Name", "Telefon", "Guthaben_Euro", "Leads_Geliefert", "Letzter_Lead_Am", "Status"]
     all_values = sheet.get_all_values()
     if len(all_values) <= 1:
         return []
-
     records = []
     for row in all_values[1:]:
         if len(row) >= 6:
@@ -224,14 +210,6 @@ def get_all_partner_records(sheet: gspread.Worksheet) -> list:
 
 
 def find_best_partner(sheet: gspread.Worksheet) -> Optional[dict]:
-    """
-    FAIRE VERTEILUNG (Round-Robin / Zeitbasiert):
-    - Status = 'Aktiv'
-    - Guthaben_Euro >= Lead-Preis
-    - Sortiert nach Letzter_Lead_Am ASC (wer am längsten wartet, ist dran)
-    - Neue Partner (leeres Datum) kommen ZUERST dran
-    - Bei Gleichstand: Wenigste Leads zuerst
-    """
     try:
         all_records = get_all_partner_records(sheet)
     except Exception as e:
@@ -253,7 +231,6 @@ def find_best_partner(sheet: gspread.Worksheet) -> Optional[dict]:
             leads = int(record.get("Leads_Geliefert", 0))
         except (ValueError, TypeError):
             leads = 0
-
         letzter_lead = str(record.get("Letzter_Lead_Am", "")).strip()
 
         if status == "Aktiv" and guthaben > LEAD_PREIS - 0.01:
@@ -279,16 +256,11 @@ def find_best_partner(sheet: gspread.Worksheet) -> Optional[dict]:
 
     aktive_partner.sort(key=sort_key)
     best = aktive_partner[0]
-    logger.info(
-        f"Bester Partner (fair): {best['name']} (Zeile {best['row']}, "
-        f"Letzter Lead: {best['letzter_lead'] or 'NIE'}, "
-        f"Leads: {best['leads_geliefert']}, Guthaben: {best['guthaben']}€)"
-    )
+    logger.info(f"Bester Partner: {best['name']} ({best['guthaben']}€)")
     return best
 
 
 def update_partner(sheet: gspread.Worksheet, partner: dict) -> bool:
-    """Aktualisiert den Partner: Guthaben -LEAD_PREIS, Leads +1, Datum = jetzt."""
     row = partner["row"]
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     try:
@@ -297,8 +269,50 @@ def update_partner(sheet: gspread.Worksheet, partner: dict) -> bool:
         neue_leads = partner["leads_geliefert"] + 1
         sheet.update_cell(row, 4, neue_leads)
         sheet.update_cell(row, 5, now)
-        logger.info(
-            f"Partner {partner['name']} aktualisiert: "
-            f"Guthaben {partner['guthaben']}€ → {neues_guthaben}€, "
-    
+        logger.info(f"Partner {partner['name']} aktualisiert: {neues_guthaben}€")
+        if neues_guthaben < LEAD_PREIS:
+            sheet.update_cell(row, 6, "Pausiert")
+            if MATZE_PHONE:
+                send_whatsapp(MATZE_PHONE, f"⚠️ *Partner {partner['name']} pausiert!* (Guthaben leer)")
+        return True
+    except Exception as e:
+        logger.error(f"Fehler beim Partner-Update: {e}")
+        return False
+
+
+def find_partner_by_phone(sheet: gspread.Worksheet, phone: str) -> Optional[dict]:
+    normalized = normalize_phone(phone)
+    if not normalized:
+        return None
+    records = get_all_partner_records(sheet)
+    for idx, record in enumerate(records):
+        partner_phone = normalize_phone(str(record.get("Telefon", "")))
+        if partner_phone and partner_phone == normalized:
+            try:
+                guthaben = float(str(record.get("Guthaben_Euro", 0)).replace(",", "."))
+            except (ValueError, TypeError):
+                guthaben = 0
+            return {
+                "row": idx + 2,
+                "name": str(record.get("Name", "")),
+                "telefon": partner_phone,
+                "guthaben": guthaben,
+            }
+    return None
+
+
+def find_partner_by_name(sheet: gspread.Worksheet, name: str) -> Optional[dict]:
+    if not name:
+        return None
+    records = get_all_partner_records(sheet)
+    name_lower = name.lower().strip()
+    for idx, record in enumerate(records):
+        record_name = str(record.get("Name", "")).lower().strip()
+        if record_name and (record_name in name_lower or name_lower in record_name):
+            try:
+                guthaben = float(str(record.get("Guthaben_Euro", 0)).replace(",", "."))
+            except (ValueError, TypeError):
+                guthaben = 0
+            return {
+        
 ...(truncated)...
