@@ -309,8 +309,8 @@ def update_partner(sheet: gspread.Worksheet, partner: dict) -> bool:
             logger.info(f"Partner {partner['name']} pausiert (Guthaben < {LEAD_PREIS}€)")
             if MATZE_PHONE:
                 send_whatsapp(MATZE_PHONE,
-                    f"⚠️ *Partner pausiert!*\\n\\n"
-                    f"👤 {partner['name']} hat nur noch {neues_guthaben}€ Guthaben.\\n"
+                    f"⚠️ *Partner pausiert!*\n\n"
+                    f"👤 {partner['name']} hat nur noch {neues_guthaben}€ Guthaben.\n"
                     f"Nächstes Lead-Paket nötig!"
                 )
         return True
@@ -326,5 +326,410 @@ def find_partner_by_phone(sheet: gspread.Worksheet, phone: str) -> Optional[dict
     records = get_all_partner_records(sheet)
     for idx, record in enumerate(records):
         partner_phone = normalize_phone(str(record.get("Telefon", "")))
-        if partner_phone and
-...(truncated)...
+        if partner_phone and partner_phone == normalized:
+            try:
+                guthaben = float(str(record.get("Guthaben_Euro", 0)).replace(",", "."))
+            except (ValueError, TypeError):
+                guthaben = 0
+            return {
+                "row": idx + 2,
+                "name": str(record.get("Name", "")),
+                "telefon": partner_phone,
+                "guthaben": guthaben,
+            }
+    return None
+
+
+def find_partner_by_name(sheet: gspread.Worksheet, name: str) -> Optional[dict]:
+    if not name:
+        return None
+    records = get_all_partner_records(sheet)
+    name_lower = name.lower().strip()
+    for idx, record in enumerate(records):
+        record_name = str(record.get("Name", "")).lower().strip()
+        if record_name and (record_name in name_lower or name_lower in record_name):
+            try:
+                guthaben = float(str(record.get("Guthaben_Euro", 0)).replace(",", "."))
+            except (ValueError, TypeError):
+                guthaben = 0
+            return {
+                "row": idx + 2,
+                "name": str(record.get("Name", "")),
+                "telefon": normalize_phone(str(record.get("Telefon", ""))),
+                "guthaben": guthaben,
+            }
+    return None
+
+
+def add_new_partner(sheet: gspread.Worksheet, name: str, phone: str, guthaben: float) -> bool:
+    """Fügt einen neuen Partner hinzu."""
+    try:
+        normalized_phone = normalize_phone(phone)
+        now = ""
+        new_row = [name, normalized_phone, guthaben, 0, now, "Aktiv"]
+        sheet.append_row(new_row, value_input_option="USER_ENTERED")
+        logger.info(f"Neuer Partner hinzugefügt: {name}")
+        return True
+    except Exception as e:
+        logger.error(f"Fehler beim Hinzufügen von Partner {name}: {e}")
+        return False
+
+
+# ─── Lead-Verarbeitung ───────────────────────────────────────────────────────
+def process_single_lead(lead_row_idx: int, lead_data: dict) -> bool:
+    """
+    Verarbeitet EINEN Lead:
+    1. Sucht besten Partner (fair)
+    2. Aktualisiert Partner (Guthaben -5€, Leads +1)
+    3. Sendet WhatsApp an Partner
+    4. Sendet WhatsApp an Lead (wenn Telefon vorhanden)
+    5. Loggt alles
+    """
+    sheet = get_sheet()
+    leads_sheet = get_leads_sheet()
+    
+    lead_name = lead_data.get("name", "")
+    lead_phone = lead_data.get("phone", "")
+    lead_email = lead_data.get("email", "")
+    
+    logger.info(f"Verarbeite Lead: {lead_name} ({lead_email})")
+    
+    # Status auf PROCESSING setzen (verhindert Doppelverarbeitung)
+    try:
+        leads_sheet.update_cell(lead_row_idx, 16, "PROCESSING")
+    except Exception as e:
+        logger.error(f"Konnte Status nicht auf PROCESSING setzen: {e}")
+    
+    # Besten Partner finden
+    partner = find_best_partner(sheet)
+    if not partner:
+        logger.error("Kein Partner verfügbar!")
+        try:
+            leads_sheet.update_cell(lead_row_idx, 16, "KEIN_PARTNER")
+        except:
+            pass
+        return False
+    
+    # Partner aktualisieren
+    if not update_partner(sheet, partner):
+        logger.error("Partner-Update fehlgeschlagen!")
+        return False
+    
+    # WhatsApp an Partner
+    partner_msg = (
+        f"🎯 *Neuer Lead!*\n\n"
+        f"👤 Name: {lead_name}\n"
+        f"📧 Email: {lead_email}\n"
+        f"📱 Telefon: {lead_phone or 'Nicht vorhanden'}\n\n"
+        f"💰 Guthaben: {partner['guthaben'] - LEAD_PREIS}€"
+    )
+    wa_partner_result = send_whatsapp(partner["telefon"], partner_msg)
+    wa_partner_ok = "error" not in wa_partner_result
+    
+    # WhatsApp an Lead (wenn Telefon vorhanden)
+    wa_lead_ok = False
+    if lead_phone:
+        lead_msg = (
+            f"Hallo {lead_name},\n\n"
+            f"Danke für dein Interesse! {partner['name']} wird sich in Kürze bei dir melden.\n\n"
+            f"Bei Fragen erreichst du uns jederzeit."
+        )
+        wa_lead_result = send_whatsapp(lead_phone, lead_msg)
+        wa_lead_ok = "error" not in wa_lead_result
+    
+    # Logging
+    log_lead(
+        lead_name, lead_phone, lead_email,
+        partner["name"], partner["telefon"], partner["guthaben"] - LEAD_PREIS,
+        wa_partner_ok, wa_lead_ok, "VERTEILT"
+    )
+    
+    # Status auf VERTEILT setzen
+    try:
+        leads_sheet.update_cell(lead_row_idx, 16, "VERTEILT")
+    except Exception as e:
+        logger.error(f"Konnte Status nicht auf VERTEILT setzen: {e}")
+    
+    return True
+
+
+# ─── Polling für neue Leads ──────────────────────────────────────────────────
+def poll_new_leads():
+    """
+    Pollt das Leads-Sheet nach neuen Leads (Status = NEU oder leer).
+    """
+    if not poll_lock.acquire(blocking=False):
+        logger.info("Polling läuft bereits, überspringe...")
+        return
+    
+    try:
+        leads_sheet = get_leads_sheet()
+        all_values = leads_sheet.get_all_values()
+        
+        if len(all_values) <= 1:
+            logger.info("Keine Leads im Sheet")
+            return
+        
+        headers = all_values[0]
+        
+        # Spalten-Indizes finden
+        name_idx = None
+        email_idx = None
+        phone_idx = None
+        status_idx = None
+        
+        for i, h in enumerate(headers):
+            h_lower = h.lower()
+            if "name" in h_lower or "vollständiger name" in h_lower:
+                name_idx = i
+            elif "email" in h_lower or "e-mail" in h_lower:
+                email_idx = i
+            elif "phone" in h_lower or "telefon" in h_lower or "mobil" in h_lower:
+                phone_idx = i
+            elif "status" in h_lower or "lead_status" in h_lower:
+                status_idx = i
+        
+        # Fallback: Standard-Positionen
+        if name_idx is None:
+            name_idx = 0
+        if email_idx is None:
+            email_idx = 1 if len(headers) > 1 else 0
+        if phone_idx is None:
+            phone_idx = 2 if len(headers) > 2 else 0
+        if status_idx is None:
+            status_idx = 15 if len(headers) > 15 else len(headers) - 1
+        
+        logger.info(f"Spalten-Indizes: Name={name_idx}, Email={email_idx}, Phone={phone_idx}, Status={status_idx}")
+        
+        new_leads_found = 0
+        
+        for row_idx, row in enumerate(all_values[1:], start=2):
+            # Status prüfen (Spalte P = Index 15, oder gefundener Index)
+            status = ""
+            if len(row) > status_idx:
+                status = row[status_idx].strip().upper()
+            
+            # Nur NEU oder leere Status verarbeiten
+            if status not in ["", "NEU"]:
+                continue
+            
+            # Lead-Daten extrahieren
+            lead_data = {
+                "name": row[name_idx] if len(row) > name_idx else "",
+                "email": row[email_idx] if len(row) > email_idx else "",
+                "phone": normalize_phone(row[phone_idx]) if len(row) > phone_idx else "",
+            }
+            
+            if not lead_data["name"] and not lead_data["email"]:
+                continue
+            
+            logger.info(f"Neuer Lead gefunden (Zeile {row_idx}): {lead_data['name']}")
+            new_leads_found += 1
+            
+            # Lead verarbeiten
+            success = process_single_lead(row_idx, lead_data)
+            
+            if success:
+                logger.info(f"Lead {row_idx} erfolgreich verteilt")
+            else:
+                logger.error(f"Lead {row_idx} konnte nicht verteilt werden")
+        
+        if new_leads_found == 0:
+            logger.info("Keine neuen Leads gefunden")
+        else:
+            logger.info(f"{new_leads_found} neue Leads verarbeitet")
+            
+    except Exception as e:
+        logger.error(f"Fehler beim Polling: {e}")
+    finally:
+        poll_lock.release()
+
+
+# ─── Hintergrund-Task für Polling ────────────────────────────────────────────
+def start_polling():
+    """Startet das Polling in einem Hintergrund-Thread."""
+    def poll_loop():
+        logger.info(f"Polling gestartet (Intervall: {POLL_INTERVAL}s)")
+        while True:
+            try:
+                poll_new_leads()
+            except Exception as e:
+                logger.error(f"Fehler in Polling-Loop: {e}")
+            time.sleep(POLL_INTERVAL)
+    
+    thread = threading.Thread(target=poll_loop, daemon=True)
+    thread.start()
+    logger.info("Polling-Thread gestartet")
+
+
+# ─── API Endpoints ───────────────────────────────────────────────────────────
+@app.get("/")
+def root():
+    return {
+        "status": "ok",
+        "service": "Lead-Verteilungs-Service",
+        "version": "3.6-META",
+        "features": ["sheet_polling", "facebook_webhook", "stripe_webhook", "meta_whatsapp"]
+    }
+
+
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
+
+
+# Facebook Webhook Verification
+@app.get("/webhook/facebook")
+def facebook_verify(request: Request):
+    """Facebook Webhook Verification."""
+    params = dict(request.query_params)
+    mode = params.get("hub.mode")
+    token = params.get("hub.verify_token")
+    challenge = params.get("hub.challenge")
+    
+    if mode == "subscribe" and token == FB_VERIFY_TOKEN:
+        logger.info("Facebook Webhook verifiziert")
+        return int(challenge) if challenge else "OK"
+    
+    raise HTTPException(status_code=403, detail="Verification failed")
+
+
+# Facebook Lead Ads Webhook
+@app.post("/webhook/facebook")
+async def facebook_webhook(request: Request):
+    """Empfängt Facebook Lead Ads."""
+    try:
+        data = await request.json()
+        logger.info(f"Facebook Webhook erhalten: {json.dumps(data)[:500]}")
+        
+        # Lead-Daten extrahieren
+        entry = data.get("entry", [{}])[0]
+        changes = entry.get("changes", [{}])[0]
+        value = changes.get("value", {})
+        
+        lead_id = value.get("leadgen_id")
+        form_id = value.get("form_id")
+        
+        if lead_id:
+            logger.info(f"Neuer Lead von Facebook: {lead_id}")
+            # Lead-Daten aus Facebook holen (wenn Access Token vorhanden)
+            if FB_ACCESS_TOKEN:
+                try:
+                    fb_url = f"https://graph.facebook.com/v18.0/{lead_id}?access_token={FB_ACCESS_TOKEN}"
+                    fb_response = requests.get(fb_url, timeout=30)
+                    if fb_response.status_code == 200:
+                        lead_data_fb = fb_response.json()
+                        logger.info(f"Lead-Daten von Facebook: {json.dumps(lead_data_fb)[:500]}")
+                        
+                        # Felder extrahieren
+                        field_data = lead_data_fb.get("field_data", [])
+                        lead_info = {}
+                        for field in field_data:
+                            lead_info[field["name"]] = field["values"][0] if field["values"] else ""
+                        
+                        # Ins Sheet schreiben
+                        leads_sheet = get_leads_sheet()
+                        new_row = [
+                            lead_info.get("full_name", ""),
+                            lead_info.get("email", ""),
+                            normalize_phone(lead_info.get("phone_number", "")),
+                            "NEU",
+                            datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                            form_id,
+                            lead_id
+                        ]
+                        leads_sheet.append_row(new_row, value_input_option="USER_ENTERED")
+                        logger.info(f"Lead {lead_id} ins Sheet geschrieben")
+                        
+                except Exception as e:
+                    logger.error(f"Fehler beim Holen der Lead-Daten von Facebook: {e}")
+        
+        return {"status": "ok"}
+        
+    except Exception as e:
+        logger.error(f"Fehler im Facebook Webhook: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+# Stripe Webhook
+@app.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    """Empfängt Stripe Payment Events."""
+    try:
+        payload = await request.body()
+        sig_header = request.headers.get("stripe-signature")
+        
+        if STRIPE_WEBHOOK_SECRET and sig_header:
+            try:
+                event = stripe.Webhook.construct_event(
+                    payload, sig_header, STRIPE_WEBHOOK_SECRET
+                )
+            except stripe.error.SignatureVerificationError:
+                logger.error("Stripe Signature ungültig")
+                raise HTTPException(status_code=400, detail="Invalid signature")
+        else:
+            data = await request.json()
+            event = {"type": data.get("type"), "data": {"object": data.get("data", {}).get("object", {})}}
+        
+        event_type = event.get("type") if isinstance(event, dict) else event.type
+        event_data = event.get("data", {}).get("object", {}) if isinstance(event, dict) else event.data.object
+        
+        logger.info(f"Stripe Event: {event_type}")
+        
+        if event_type == "checkout.session.completed":
+            customer_email = event_data.get("customer_details", {}).get("email", "")
+            amount = event_data.get("amount_total", 0) / 100  # Cent zu Euro
+            
+            logger.info(f"Zahlung erhalten: {customer_email} - {amount}€")
+            
+            # Partner finden oder erstellen
+            sheet = get_sheet()
+            partner = find_partner_by_name(sheet, customer_email)
+            
+            if partner:
+                # Guthaben aufladen
+                new_guthaben = partner["guthaben"] + amount
+                sheet.update_cell(partner["row"], 3, new_guthaben)
+                sheet.update_cell(partner["row"], 6, "Aktiv")
+                logger.info(f"Guthaben aufgeladen: {partner['name']} - {partner['guthaben']}€ → {new_guthaben}€")
+                
+                # WhatsApp Benachrichtigung
+                if partner["telefon"]:
+                    msg = f"✅ *Zahlung erhalten!*\n\nGuthaben: {new_guthaben}€\nDu bist wieder aktiv."
+                    send_whatsapp(partner["telefon"], msg)
+            else:
+                # Neuen Partner anlegen
+                add_new_partner(sheet, customer_email, "", amount)
+                logger.info(f"Neuer Partner angelegt: {customer_email} mit {amount}€")
+        
+        return {"status": "ok"}
+        
+    except Exception as e:
+        logger.error(f"Fehler im Stripe Webhook: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+# Manuelles Triggern der Lead-Verarbeitung
+@app.post("/process-leads")
+def process_leads_endpoint():
+    """Manuelles Auslösen der Lead-Verarbeitung."""
+    try:
+        poll_new_leads()
+        return {"status": "ok", "message": "Leads verarbeitet"}
+    except Exception as e:
+        logger.error(f"Fehler beim manuellen Verarbeiten: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Startup ─────────────────────────────────────────────────────────────────
+@app.on_event("startup")
+def startup_event():
+    logger.info("Lead-Verteilungs-Service gestartet")
+    logger.info(f"Meta API URL: {META_URL}")
+    logger.info(f"Google Sheet: {GOOGLE_SHEET_ID}")
+    start_polling()
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
