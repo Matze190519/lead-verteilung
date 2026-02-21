@@ -1,12 +1,10 @@
 """
-Lead-Verteilungs-Service v4.0 FINAL (META API) - KORRIGIERT
-=============================================================
+Lead-Verteilungs-Service v4.0 FINAL (META API)
+================================================
 - Meta API für WhatsApp (offiziell)
 - Automatisches Polling alle 60 Sekunden
 - Stripe Integration
 - Lina (4915170605019) bekommt alle Infos
-- Partner bekommt sofort Info bei Anmeldung/Zahlung
-- KORRIGIERT: Spalten-Erkennung für "Vollständiger Name"
 """
 
 import os
@@ -64,10 +62,8 @@ poll_lock = threading.Lock()
 # ─── FASTAPI APP ─────────────────────────────
 app = FastAPI(
     title="Lead-Verteilungs-Service",
-    version="4.0-META-KORRIGIERT",
+    version="4.0-META",
 )
-
-
 # ─── GOOGLE SHEETS ───────────────────────────
 def get_google_client():
     if GOOGLE_CREDENTIALS_JSON:
@@ -104,9 +100,7 @@ def log_entry(lead_name, lead_phone, lead_email, partner_name, partner_phone, gu
         ws.append_row([now, lead_name, lead_phone, lead_email, partner_name, partner_phone, guthaben, status], value_input_option="USER_ENTERED")
     except Exception as e:
         logger.error(f"Log error: {e}")
-
-
-# ─── META WHATSAPP ───────────────────────────
+        # ─── META WHATSAPP ───────────────────────────
 def send_whatsapp(phone: str, message: str) -> bool:
     if not phone or len(phone) < 10:
         logger.error(f"Ungültige Nummer: {phone}")
@@ -151,9 +145,7 @@ def normalize_phone(phone):
     if phone.startswith("0"):
         phone = "49" + phone[1:]
     return phone
-
-
-# ─── PARTNER LOGIC ───────────────────────────
+    # ─── PARTNER LOGIC ───────────────────────────
 def get_all_partners(sheet):
     records = []
     try:
@@ -198,9 +190,7 @@ def update_partner(sheet, partner):
         send_whatsapp(LINA_PHONE, f"⚠️ Partner {partner['name']} pausiert (Guthaben: {new_bal}€)")
     
     return new_bal
-
-
-# ─── LEAD VERARBEITUNG ───────────────────────
+    # ─── LEAD VERARBEITUNG ───────────────────────
 def process_lead(name, phone, email, row_idx=None):
     logger.info(f"Verarbeite Lead: {name} ({email})")
     
@@ -251,23 +241,16 @@ def poll_leads():
         
         headers = rows[0]
         
-        # Spalten finden (exakte Header aus dem Sheet)
-        name_col = next((i for i, h in enumerate(headers) if "vollständiger name" in h.lower()), None)
-        email_col = next((i for i, h in enumerate(headers) if "e-mail" in h.lower() or h.lower() == "email"), None)
-        phone_col = next((i for i, h in enumerate(headers) if "telefonnummer" in h.lower() or h.lower() == "phone number"), None)
-        status_col = next((i for i, h in enumerate(headers) if "lead_status" in h.lower() or h.lower() == "status"), None)
+        # KORRIGIERTE Spalten-Indizes (basierend auf der Header-Zeile):
+        # id=0, created_time=1, ad_id=2, ad_name=3, adset_id=4, adset_name=5, 
+        # campaign_id=6, campaign_name=7, form_id=8, form_name=9, is_organic=10, 
+        # platform=11, e-mail-adresse=12, vollständiger_name=13, telefonnummer=14, lead_status=15
+        name_col = 13   # vollständiger_name - WAR VORHER 3 (ad_name)!
+        email_col = 12  # e-mail-adresse  
+        phone_col = 14  # telefonnummer
+        status_col = 15 # lead_status
         
-        # Fallbacks wenn nicht gefunden
-        if name_col is None:
-            name_col = next((i for i, h in enumerate(headers) if "name" in h.lower()), 0)
-        if email_col is None:
-            email_col = next((i for i, h in enumerate(headers) if "mail" in h.lower()), 1)
-        if phone_col is None:
-            phone_col = next((i for i, h in enumerate(headers) if "telefon" in h.lower() or "phone" in h.lower()), 2)
-        if status_col is None:
-            status_col = len(headers) - 1 if headers else 15
-        
-        logger.info(f"Spalten gefunden: Name={name_col}, Email={email_col}, Phone={phone_col}, Status={status_col}")
+        logger.info(f"KORRIGIERT - Spalten: Name={name_col}, Email={email_col}, Phone={phone_col}, Status={status_col}")
         
         for i, row in enumerate(rows[1:], 2):
             if len(row) <= status_col:
@@ -284,7 +267,6 @@ def poll_leads():
             email = row[email_col] if len(row) > email_col else ""
             phone = normalize_phone(row[phone_col]) if len(row) > phone_col else ""
             
-            logger.info(f"Lead gefunden: {name}, {email}, {phone}")
             process_lead(name, phone, email, i)
             
     except Exception as e:
@@ -298,12 +280,10 @@ def poll_loop():
     while True:
         time.sleep(POLL_INTERVAL)
         poll_leads()
-
-
-# ─── API ENDPOINTS ───────────────────────────
+       # ─── API ENDPOINTS ───────────────────────────
 @app.get("/")
 def root():
-    return {"status": "ok", "version": "4.0-META-KORRIGIERT", "meta_url": META_URL}
+    return {"status": "ok", "version": "4.0-META", "meta_url": META_URL}
 
 
 @app.get("/health")
@@ -354,9 +334,7 @@ async def fb_webhook(request: Request):
     except Exception as e:
         logger.error(f"FB Webhook Fehler: {e}")
         return {"status": "error"}
-
-
-@app.post("/webhook/stripe")
+        @app.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     try:
         payload = await request.body()
@@ -426,7 +404,7 @@ async def stripe_webhook(request: Request):
 # ─── STARTUP ─────────────────────────────────
 @app.on_event("startup")
 def startup():
-    logger.info("Lead-Verteilung v4.0 KORRIGIERT gestartet")
+    logger.info("Lead-Verteilung v4.0 gestartet")
     logger.info(f"Meta URL: {META_URL}")
     logger.info(f"Lina Phone: {LINA_PHONE}")
     threading.Thread(target=poll_loop, daemon=True).start()
