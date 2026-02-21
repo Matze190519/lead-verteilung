@@ -1,13 +1,13 @@
 """
-Lead-Verteilungs-Service v4.0 FINAL (META API)
-================================================
+Lead-Verteilungs-Service v4.0 FINAL (META API - FIXED)
+=======================================================
 - Meta API für WhatsApp (Lina: 4915170605019)
 - Automatisches Polling alle 60 Sekunden
 - Stripe Integration
 - KEINE WhatsApp an Interessenten (nur Partner + Lina)
 - Lina bekommt ALLE Infos
-
-Basierend auf v3.2 (funktionierende Logik)
+- FIX: Rate-Limit-Pause zwischen WhatsApp-Calls
+- FIX: Erweitertes Logging für Debugging
 """
 
 import os
@@ -45,8 +45,15 @@ GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1wVevVuP1sm_2g7eg37rCYSVSoF_T6rj
 FB_VERIFY_TOKEN = os.getenv("FB_VERIFY_TOKEN", "mein_geheimer_token_2024")
 LEAD_PREIS = float(os.getenv("LEAD_PREIS", "5"))
 
-# Linas Nummer für ALLE Benachrichtigungen
+# Linas Nummer - HARTKODIERT, keine Environment-Variable!
 LINA_PHONE = "4915170605019"
+
+# Sicherheitscheck beim Start
+if not LINA_PHONE or len(LINA_PHONE) < 10:
+    logger.critical("🔴 LINA_PHONE ist ungültig!")
+    raise ValueError("LINA_PHONE muss gesetzt sein!")
+else:
+    logger.info(f"✅ LINA_PHONE konfiguriert: {LINA_PHONE}")
 
 # Google Credentials
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
@@ -65,7 +72,7 @@ poll_lock = threading.Lock()
 # ─── FastAPI App ─────────────────────────────
 app = FastAPI(
     title="Lead-Verteilungs-Service",
-    version="4.0-META",
+    version="4.0-META-FIXED",
 )
 
 
@@ -114,15 +121,21 @@ def log_lead(lead_name, lead_phone, lead_email, partner_name, partner_phone,
 
 # ─── Meta WhatsApp ───────────────────────────
 def send_whatsapp(phone, message):
+    # ✅ ERWEITERTE VALIDIERUNG & LOGGING
+    logger.info(f"[SEND_WHATSAPP] Input: phone='{phone}' | Länge={len(phone) if phone else 0}")
+    
     if not phone or len(phone) < 10:
-        logger.error(f"Ungültige Nummer: {phone}")
+        logger.error(f"❌ Ungültige Nummer: '{phone}' (Länge: {len(phone) if phone else 0})")
         return {"error": "Invalid phone"}
     
     if not META_TOKEN or not META_PHONE_ID:
-        logger.error("META_TOKEN oder META_PHONE_ID nicht gesetzt!")
+        logger.error("❌ META_TOKEN oder META_PHONE_ID nicht gesetzt!")
         return {"error": "Not configured"}
     
     to = phone.replace("+", "").replace(" ", "").replace("@s.whatsapp.net", "")
+    
+    # ✅ DEBUG: Zeige was WIRKLICH an Meta gesendet wird
+    logger.info(f"[META_SEND] Normalisiert: '{to}' | Original: '{phone}'")
     
     headers = {
         "Authorization": f"Bearer {META_TOKEN}",
@@ -139,13 +152,29 @@ def send_whatsapp(phone, message):
     
     try:
         res = requests.post(META_URL, json=payload, headers=headers, timeout=30)
+        
+        # ✅ IMMER Response-Status loggen
+        logger.info(f"[META_RESPONSE] Status={res.status_code} | Phone={to}")
+        
         if res.status_code >= 400:
-            logger.error(f"Meta API Error: {res.text}")
-            return {"error": res.text}
-        logger.info(f"WhatsApp OK an {phone}")
+            error_body = res.text
+            logger.error(f"❌ Meta API Error: {error_body[:200]}")
+            
+            # Versuche Error-Details zu parsen
+            try:
+                error_json = res.json()
+                error_code = error_json.get("error", {}).get("code")
+                logger.error(f"❌ Error-Code: {error_code}")
+            except:
+                pass
+            
+            return {"error": error_body}
+        
+        logger.info(f"✅ WhatsApp OK an {to}")
         return {"success": True}
+        
     except Exception as e:
-        logger.error(f"WhatsApp Exception: {e}")
+        logger.error(f"❌ WhatsApp Exception: {e}")
         return {"error": str(e)}
 
 
@@ -419,6 +448,15 @@ def process_lead(lead_data):
                    f"💰 Guthaben: {neues_guthaben}€ verbleibend")
     wa_result = send_whatsapp(partner["telefon"], partner_msg)
 
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ✅ KRITISCHER FIX: Rate-Limit-Pause VOR Lina-WhatsApp
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    logger.info("⏱️ Warte 2s vor Lina-Benachrichtigung (Rate-Limit)")
+    time.sleep(2)
+    
+    # ✅ DEBUG: Prüfe LINA_PHONE vor dem Senden
+    logger.info(f"🔍 DEBUG: LINA_PHONE = '{LINA_PHONE}' | Länge={len(LINA_PHONE)}")
+
     # Lina benachrichtigen
     lina_msg = (f"✅ *Lead verteilt*\n\n"
                 f"👤 {lead_name}\n"
@@ -426,7 +464,14 @@ def process_lead(lead_data):
                 f"📧 {lead_email}\n\n"
                 f"➡️ {partner['name']}\n"
                 f"💰 Partner-Guthaben: {neues_guthaben}€")
-    send_whatsapp(LINA_PHONE, lina_msg)
+    
+    lina_result = send_whatsapp(LINA_PHONE, lina_msg)
+    
+    # ✅ LOG: Prüfe ob Lina-WhatsApp erfolgreich
+    if "error" in lina_result:
+        logger.error(f"❌ Lina-WhatsApp fehlgeschlagen: {lina_result}")
+    else:
+        logger.info(f"✅ Lina-WhatsApp erfolgreich")
 
     log_lead(lead_name, lead_phone, lead_email, partner["name"], 
              partner["telefon"], neues_guthaben, "error" not in wa_result, "VERTEILT")
@@ -545,13 +590,13 @@ def polling_loop():
 # ─── API Endpoints ───────────────────────────
 @app.on_event("startup")
 def startup():
-    logger.info("🚀 Lead-Verteilung v4.0 gestartet")
+    logger.info("🚀 Lead-Verteilung v4.0-FIXED gestartet")
     threading.Thread(target=polling_loop, daemon=True).start()
 
 
 @app.get("/")
 def root():
-    return {"status": "ok", "version": "4.0-META", "lina": LINA_PHONE}
+    return {"status": "ok", "version": "4.0-META-FIXED", "lina": LINA_PHONE}
 
 
 @app.get("/webhook/facebook")
