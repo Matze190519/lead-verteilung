@@ -1,11 +1,12 @@
 """
-Lead-Verteilungs-Service v4.0 FINAL (META API)
-================================================
+Lead-Verteilungs-Service v4.0 FINAL (META API) - KORRIGIERT
+=============================================================
 - Meta API für WhatsApp (offiziell)
 - Automatisches Polling alle 60 Sekunden
 - Stripe Integration
 - Lina (4915170605019) bekommt alle Infos
 - Partner bekommt sofort Info bei Anmeldung/Zahlung
+- KORRIGIERT: Spalten-Erkennung für "Vollständiger Name"
 """
 
 import os
@@ -63,7 +64,7 @@ poll_lock = threading.Lock()
 # ─── FASTAPI APP ─────────────────────────────
 app = FastAPI(
     title="Lead-Verteilungs-Service",
-    version="4.0-META",
+    version="4.0-META-KORRIGIERT",
 )
 
 
@@ -250,11 +251,23 @@ def poll_leads():
         
         headers = rows[0]
         
-        # Spalten finden
-        name_col = next((i for i, h in enumerate(headers) if "name" in h.lower()), 0)
-        email_col = next((i for i, h in enumerate(headers) if "email" in h.lower() or "e-mail" in h.lower()), 1)
-        phone_col = next((i for i, h in enumerate(headers) if "phone" in h.lower() or "telefon" in h.lower()), 2)
-        status_col = next((i for i, h in enumerate(headers) if "status" in h.lower()), 15)
+        # Spalten finden (exakte Header aus dem Sheet)
+        name_col = next((i for i, h in enumerate(headers) if "vollständiger name" in h.lower()), None)
+        email_col = next((i for i, h in enumerate(headers) if "e-mail" in h.lower() or h.lower() == "email"), None)
+        phone_col = next((i for i, h in enumerate(headers) if "telefonnummer" in h.lower() or h.lower() == "phone number"), None)
+        status_col = next((i for i, h in enumerate(headers) if "lead_status" in h.lower() or h.lower() == "status"), None)
+        
+        # Fallbacks wenn nicht gefunden
+        if name_col is None:
+            name_col = next((i for i, h in enumerate(headers) if "name" in h.lower()), 0)
+        if email_col is None:
+            email_col = next((i for i, h in enumerate(headers) if "mail" in h.lower()), 1)
+        if phone_col is None:
+            phone_col = next((i for i, h in enumerate(headers) if "telefon" in h.lower() or "phone" in h.lower()), 2)
+        if status_col is None:
+            status_col = len(headers) - 1 if headers else 15
+        
+        logger.info(f"Spalten gefunden: Name={name_col}, Email={email_col}, Phone={phone_col}, Status={status_col}")
         
         for i, row in enumerate(rows[1:], 2):
             if len(row) <= status_col:
@@ -271,6 +284,7 @@ def poll_leads():
             email = row[email_col] if len(row) > email_col else ""
             phone = normalize_phone(row[phone_col]) if len(row) > phone_col else ""
             
+            logger.info(f"Lead gefunden: {name}, {email}, {phone}")
             process_lead(name, phone, email, i)
             
     except Exception as e:
@@ -289,7 +303,7 @@ def poll_loop():
 # ─── API ENDPOINTS ───────────────────────────
 @app.get("/")
 def root():
-    return {"status": "ok", "version": "4.0-META", "meta_url": META_URL}
+    return {"status": "ok", "version": "4.0-META-KORRIGIERT", "meta_url": META_URL}
 
 
 @app.get("/health")
@@ -412,7 +426,7 @@ async def stripe_webhook(request: Request):
 # ─── STARTUP ─────────────────────────────────
 @app.on_event("startup")
 def startup():
-    logger.info("Lead-Verteilung v4.0 gestartet")
+    logger.info("Lead-Verteilung v4.0 KORRIGIERT gestartet")
     logger.info(f"Meta URL: {META_URL}")
     logger.info(f"Lina Phone: {LINA_PHONE}")
     threading.Thread(target=poll_loop, daemon=True).start()
