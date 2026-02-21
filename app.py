@@ -64,6 +64,8 @@ app = FastAPI(
     title="Lead-Verteilungs-Service",
     version="4.0-META",
 )
+
+
 # ─── GOOGLE SHEETS ───────────────────────────
 def get_google_client():
     if GOOGLE_CREDENTIALS_JSON:
@@ -100,7 +102,9 @@ def log_entry(lead_name, lead_phone, lead_email, partner_name, partner_phone, gu
         ws.append_row([now, lead_name, lead_phone, lead_email, partner_name, partner_phone, guthaben, status], value_input_option="USER_ENTERED")
     except Exception as e:
         logger.error(f"Log error: {e}")
-        # ─── META WHATSAPP ───────────────────────────
+
+
+# ─── META WHATSAPP ───────────────────────────
 def send_whatsapp(phone: str, message: str) -> bool:
     if not phone or len(phone) < 10:
         logger.error(f"Ungültige Nummer: {phone}")
@@ -145,7 +149,9 @@ def normalize_phone(phone):
     if phone.startswith("0"):
         phone = "49" + phone[1:]
     return phone
-    # ─── PARTNER LOGIC ───────────────────────────
+
+
+# ─── PARTNER LOGIC ───────────────────────────
 def get_all_partners(sheet):
     records = []
     try:
@@ -190,7 +196,9 @@ def update_partner(sheet, partner):
         send_whatsapp(LINA_PHONE, f"⚠️ Partner {partner['name']} pausiert (Guthaben: {new_bal}€)")
     
     return new_bal
-    # ─── LEAD VERARBEITUNG ───────────────────────
+
+
+# ─── LEAD VERARBEITUNG ───────────────────────
 def process_lead(name, phone, email, row_idx=None):
     logger.info(f"Verarbeite Lead: {name} ({email})")
     
@@ -227,7 +235,9 @@ def process_lead(name, phone, email, row_idx=None):
     except Exception as e:
         logger.error(f"Fehler: {e}")
         return False
-        # ─── POLLING ─────────────────────────────────
+
+
+# ─── POLLING ─────────────────────────────────
 def poll_leads():
     if not poll_lock.acquire(blocking=False):
         return
@@ -241,16 +251,11 @@ def poll_leads():
         
         headers = rows[0]
         
-        # KORRIGIERTE Spalten-Indizes (basierend auf der Header-Zeile):
-        # id=0, created_time=1, ad_id=2, ad_name=3, adset_id=4, adset_name=5, 
-        # campaign_id=6, campaign_name=7, form_id=8, form_name=9, is_organic=10, 
-        # platform=11, e-mail-adresse=12, vollständiger_name=13, telefonnummer=14, lead_status=15
-        name_col = 13   # vollständiger_name - WAR VORHER 3 (ad_name)!
-        email_col = 12  # e-mail-adresse  
-        phone_col = 14  # telefonnummer
-        status_col = 15 # lead_status
-        
-        logger.info(f"KORRIGIERT - Spalten: Name={name_col}, Email={email_col}, Phone={phone_col}, Status={status_col}")
+        # Spalten finden
+        name_col = next((i for i, h in enumerate(headers) if "name" in h.lower()), 0)
+        email_col = next((i for i, h in enumerate(headers) if "email" in h.lower() or "e-mail" in h.lower()), 1)
+        phone_col = next((i for i, h in enumerate(headers) if "phone" in h.lower() or "telefon" in h.lower()), 2)
+        status_col = next((i for i, h in enumerate(headers) if "status" in h.lower()), 15)
         
         for i, row in enumerate(rows[1:], 2):
             if len(row) <= status_col:
@@ -280,7 +285,9 @@ def poll_loop():
     while True:
         time.sleep(POLL_INTERVAL)
         poll_leads()
-       # ─── API ENDPOINTS ───────────────────────────
+
+
+# ─── API ENDPOINTS ───────────────────────────
 @app.get("/")
 def root():
     return {"status": "ok", "version": "4.0-META", "meta_url": META_URL}
@@ -334,7 +341,9 @@ async def fb_webhook(request: Request):
     except Exception as e:
         logger.error(f"FB Webhook Fehler: {e}")
         return {"status": "error"}
-        @app.post("/stripe-webhook")
+
+
+@app.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
     try:
         payload = await request.body()
@@ -349,51 +358,30 @@ async def stripe_webhook(request: Request):
             data = event["data"]["object"]
             amount = data.get("amount_total", 0) / 100
             customer = data.get("customer_details", {})
-            customer_email = customer.get("email", "")
-            customer_name = customer.get("name", "")
             
             # Partner finden oder erstellen
             sheet = get_partner_sheet()
             partners = get_all_partners(sheet)
             
             partner = None
-            partner_phone = ""
-            
             for p in partners:
-                if customer_email.lower() in p["name"].lower():
+                if customer.get("email", "").lower() in p["name"].lower():
                     partner = p
-                    partner_phone = p["phone"]
                     break
             
             if partner:
-                # Bestehender Partner - Guthaben aufladen
                 new_g = partner["guthaben"] + amount
                 sheet.update_cell(partner["row"], 3, new_g)
                 sheet.update_cell(partner["row"], 6, "Aktiv")
-                
-                # Partner benachrichtigen
-                if partner_phone:
-                    msg_partner = f"✅ *Zahlung erhalten!*\n\n💰 {amount}€ wurden aufgeladen\n📊 Neues Guthaben: {new_g}€\n\nDu bist aktiv und erhältst Leads!"
-                    send_whatsapp(partner_phone, msg_partner)
-                
-                # Lina benachrichtigen
-                msg_lina = f"💰 Stripe Zahlung (Aufladung)\n\n👤 {customer_name}\n📧 {customer_email}\n💵 {amount}€\n✅ Aufgeladen\n📊 Guthaben: {new_g}€"
-                send_whatsapp(LINA_PHONE, msg_lina)
-                
+                action = "aufgeladen"
             else:
-                # Neuer Partner - anlegen
-                customer_phone = normalize_phone(customer.get("phone", ""))
-                
-                sheet.append_row([customer_name, customer_phone, amount, 0, "", "Aktiv"], value_input_option="USER_ENTERED")
-                
-                # Partner benachrichtigen (wenn Telefon bekannt)
-                if customer_phone:
-                    msg_partner = f"🎉 *Willkommen!*\n\nDeine Anmeldung war erfolgreich!\n💰 {amount}€ Guthaben\n\nDu wirst jetzt automatisch Leads erhalten. Viel Erfolg! 🚀"
-                    send_whatsapp(customer_phone, msg_partner)
-                
-                # Lina benachrichtigen
-                msg_lina = f"🆕 *Neuer Partner!*\n\n👤 {customer_name}\n📧 {customer_email}\n📞 {customer_phone}\n💵 {amount}€\n✅ Neuer Partner angelegt"
-                send_whatsapp(LINA_PHONE, msg_lina)
+                sheet.append_row([customer.get("name", ""), "", amount, 0, "", "Aktiv"], value_input_option="USER_ENTERED")
+                new_g = amount
+                action = "neuer Partner"
+            
+            # Lina benachrichtigen
+            msg = f"💰 Stripe Zahlung\n\n👤 {customer.get('name', '')}\n💵 {amount}€\n✅ {action}\n📊 Guthaben: {new_g}€"
+            send_whatsapp(LINA_PHONE, msg)
         
         return {"status": "ok"}
     except Exception as e:
