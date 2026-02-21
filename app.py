@@ -1,10 +1,13 @@
 """
 Lead-Verteilungs-Service v4.0 FINAL (META API)
 ================================================
-- Meta API für WhatsApp (offiziell)
+- Meta API für WhatsApp (Lina: 4915170605019)
 - Automatisches Polling alle 60 Sekunden
 - Stripe Integration
-- Lina (4915170605019) bekommt alle Infos
+- KEINE WhatsApp an Interessenten (nur Partner + Lina)
+- Lina bekommt ALLE Infos
+
+Basierend auf v3.2 (funktionierende Logik)
 """
 
 import os
@@ -19,10 +22,10 @@ import gspread
 import stripe
 import requests
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 
-# ─── KONFIGURATION ───────────────────────────────────────────────────────────
+# ─── Konfiguration ───────────────────────────────────────────────────────────
 load_dotenv()
 
 logging.basicConfig(
@@ -32,7 +35,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("lead-verteilung")
 
-# Meta API (aus Environment oder hardcoded als Fallback)
+# Meta API (Lina)
 META_TOKEN = os.getenv("META_TOKEN", "EAARgaZCn3eoYBO0Tr9nSqfmJYOcx3gx3NAzSdwekRpZB5rfmWH2poZAvKSXXVBdR0HDqiXAEbfESzfejzSYLTCkhZAxs0bVZCMufcy51ZBN16zkDlpy8bcaUL5Omu6FTLW37O30I9uO51HSgfZBZBYz6qPEQ49RVEMWNrJmnrvvmrwCgAlJaJB7eHk2GvDdU8pKYkwZDZD")
 META_PHONE_ID = os.getenv("META_PHONE_ID", "623007617563961")
 META_URL = f"https://graph.facebook.com/v18.0/{META_PHONE_ID}/messages"
@@ -42,7 +45,7 @@ GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1wVevVuP1sm_2g7eg37rCYSVSoF_T6rj
 FB_VERIFY_TOKEN = os.getenv("FB_VERIFY_TOKEN", "mein_geheimer_token_2024")
 LEAD_PREIS = float(os.getenv("LEAD_PREIS", "5"))
 
-# Linas Nummer für Benachrichtigungen
+# Linas Nummer für ALLE Benachrichtigungen
 LINA_PHONE = "4915170605019"
 
 # Google Credentials
@@ -56,21 +59,21 @@ stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "60"))
 
-# ─── THREADING LOCK ──────────────────────────
+# ─── Threading Lock ──────────────────────────
 poll_lock = threading.Lock()
 
-# ─── FASTAPI APP ─────────────────────────────
+# ─── FastAPI App ─────────────────────────────
 app = FastAPI(
     title="Lead-Verteilungs-Service",
     version="4.0-META",
 )
 
 
-# ─── GOOGLE SHEETS ───────────────────────────
+# ─── Google Sheets ───────────────────────────
 def get_google_client():
     if GOOGLE_CREDENTIALS_JSON:
-        creds = json.loads(GOOGLE_CREDENTIALS_JSON)
-        return gspread.service_account_from_dict(creds)
+        creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
+        return gspread.service_account_from_dict(creds_dict)
     return gspread.service_account(filename=GOOGLE_CREDENTIALS_FILE)
 
 
@@ -86,33 +89,38 @@ def get_leads_sheet():
     return get_spreadsheet().worksheet("Tabellenblatt1")
 
 
-def get_log_sheet():
+def get_leads_log_sheet():
     try:
         return get_spreadsheet().worksheet("Leads_Log")
     except:
         ws = get_spreadsheet().add_worksheet(title="Leads_Log", rows=1000, cols=10)
-        ws.append_row(["Zeit", "Lead", "Telefon", "Email", "Partner", "Partner_Tel", "Guthaben", "Status"], value_input_option="USER_ENTERED")
+        ws.append_row(["Zeitstempel", "Lead_Name", "Lead_Telefon", "Lead_Email",
+                       "Partner_Name", "Partner_Telefon", "Guthaben_Nachher",
+                       "WhatsApp_Partner", "Status"], value_input_option="USER_ENTERED")
         return ws
 
 
-def log_entry(lead_name, lead_phone, lead_email, partner_name, partner_phone, guthaben, status):
+def log_lead(lead_name, lead_phone, lead_email, partner_name, partner_phone, 
+             guthaben_nachher, wa_partner_ok, status):
     try:
-        ws = get_log_sheet()
+        log_sheet = get_leads_log_sheet()
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        ws.append_row([now, lead_name, lead_phone, lead_email, partner_name, partner_phone, guthaben, status], value_input_option="USER_ENTERED")
+        row = [now, lead_name, lead_phone, lead_email, partner_name, 
+               partner_phone, guthaben_nachher, "OK" if wa_partner_ok else "FEHLER", status]
+        log_sheet.append_row(row, value_input_option="USER_ENTERED")
     except Exception as e:
         logger.error(f"Log error: {e}")
 
 
-# ─── META WHATSAPP ───────────────────────────
-def send_whatsapp(phone: str, message: str) -> bool:
+# ─── Meta WhatsApp ───────────────────────────
+def send_whatsapp(phone, message):
     if not phone or len(phone) < 10:
         logger.error(f"Ungültige Nummer: {phone}")
-        return False
+        return {"error": "Invalid phone"}
     
     if not META_TOKEN or not META_PHONE_ID:
         logger.error("META_TOKEN oder META_PHONE_ID nicht gesetzt!")
-        return False
+        return {"error": "Not configured"}
     
     to = phone.replace("+", "").replace(" ", "").replace("@s.whatsapp.net", "")
     
@@ -133,12 +141,12 @@ def send_whatsapp(phone: str, message: str) -> bool:
         res = requests.post(META_URL, json=payload, headers=headers, timeout=30)
         if res.status_code >= 400:
             logger.error(f"Meta API Error: {res.text}")
-            return False
+            return {"error": res.text}
         logger.info(f"WhatsApp OK an {phone}")
-        return True
+        return {"success": True}
     except Exception as e:
         logger.error(f"WhatsApp Exception: {e}")
-        return False
+        return {"error": str(e)}
 
 
 def normalize_phone(phone):
@@ -151,8 +159,8 @@ def normalize_phone(phone):
     return phone
 
 
-# ─── PARTNER LOGIC ───────────────────────────
-def get_all_partners(sheet):
+# ─── Partner Logik ───────────────────────────
+def get_all_partner_records(sheet):
     records = []
     try:
         for i, row in enumerate(sheet.get_all_records(), 2):
@@ -161,10 +169,10 @@ def get_all_partners(sheet):
                 records.append({
                     "row": i,
                     "name": row.get("Name", ""),
-                    "phone": normalize_phone(str(row.get("Telefon", ""))),
+                    "telefon": normalize_phone(str(row.get("Telefon", ""))),
                     "guthaben": guthaben,
-                    "leads": int(row.get("Leads_Geliefert", 0)),
-                    "last": str(row.get("Letzter_Lead_Am", "")),
+                    "leads_geliefert": int(row.get("Leads_Geliefert", 0)),
+                    "letzter_lead": str(row.get("Letzter_Lead_Am", "")),
                     "status": str(row.get("Status", "")).strip(),
                 })
             except:
@@ -175,133 +183,375 @@ def get_all_partners(sheet):
 
 
 def find_best_partner(sheet):
-    partners = [p for p in get_all_partners(sheet) if p["status"] == "Aktiv" and p["guthaben"] >= LEAD_PREIS]
-    if not partners:
+    try:
+        all_records = get_all_partner_records(sheet)
+    except Exception as e:
+        logger.error(f"Fehler beim Lesen: {e}")
         return None
-    partners.sort(key=lambda x: (x["last"] or "0000", x["leads"]))
-    return partners[0]
+
+    aktive_partner = []
+    for record in all_records:
+        status = str(record.get("status", "")).strip()
+        guthaben = record.get("guthaben", 0)
+        
+        if status == "Aktiv" and guthaben >= LEAD_PREIS:
+            aktive_partner.append(record)
+
+    if not aktive_partner:
+        return None
+
+    def sort_key(p):
+        datum = p["letzter_lead"]
+        if not datum:
+            return ("0000-00-00 00:00:00", p["leads_geliefert"])
+        return (datum, p["leads_geliefert"])
+
+    aktive_partner.sort(key=sort_key)
+    return aktive_partner[0]
 
 
 def update_partner(sheet, partner):
     row = partner["row"]
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    new_bal = round(partner["guthaben"] - LEAD_PREIS, 2)
-    
-    sheet.update_cell(row, 3, new_bal)
-    sheet.update_cell(row, 4, partner["leads"] + 1)
-    sheet.update_cell(row, 5, now)
-    
-    if new_bal < LEAD_PREIS:
-        sheet.update_cell(row, 6, "Pausiert")
-        send_whatsapp(LINA_PHONE, f"⚠️ Partner {partner['name']} pausiert (Guthaben: {new_bal}€)")
-    
-    return new_bal
-
-
-# ─── LEAD VERARBEITUNG ───────────────────────
-def process_lead(name, phone, email, row_idx=None):
-    logger.info(f"Verarbeite Lead: {name} ({email})")
-    
     try:
-        sheet = get_partner_sheet()
-        partner = find_best_partner(sheet)
+        neues_guthaben = round(partner["guthaben"] - LEAD_PREIS, 2)
+        sheet.update_cell(row, 3, neues_guthaben)
+        sheet.update_cell(row, 4, partner["leads_geliefert"] + 1)
+        sheet.update_cell(row, 5, now)
         
-        if not partner:
-            logger.error("Kein Partner verfügbar!")
-            if row_idx:
-                get_leads_sheet().update_cell(row_idx, 16, "KEIN_PARTNER")
-            return False
+        if neues_guthaben < LEAD_PREIS:
+            sheet.update_cell(row, 6, "Pausiert")
+            send_whatsapp(LINA_PHONE, 
+                f"⚠️ Partner {partner['name']} pausiert (Guthaben: {neues_guthaben}€)")
         
-        new_bal = update_partner(sheet, partner)
-        
-        # 1. Partner benachrichtigen
-        msg_partner = f"🔔 *Neuer Lead!*\n\n👤 {name}\n📞 {phone}\n📧 {email}\n\n💰 Guthaben: {new_bal}€"
-        send_whatsapp(partner["phone"], msg_partner)
-        
-        # 2. LINA (du) benachrichtigen
-        msg_lina = f"✅ Lead verteilt\n\n👤 {name}\n📞 {phone}\n📧 {email}\n\n➡️ {partner['name']}\n💰 {new_bal}€"
-        send_whatsapp(LINA_PHONE, msg_lina)
-        
-        # 3. Status aktualisieren
-        if row_idx:
-            get_leads_sheet().update_cell(row_idx, 16, "VERTEILT")
-        
-        # 4. Loggen
-        log_entry(name, phone, email, partner["name"], partner["phone"], new_bal, "VERTEILT")
-        
-        logger.info(f"Lead {name} → {partner['name']} verteilt")
+        return neues_guthaben
+    except Exception as e:
+        logger.error(f"Fehler beim Update: {e}")
+        return partner["guthaben"]
+
+
+def find_partner_by_phone(sheet, phone):
+    normalized = normalize_phone(phone)
+    if not normalized:
+        return None
+    records = get_all_partner_records(sheet)
+    for record in records:
+        partner_phone = normalize_phone(str(record.get("telefon", "")))
+        if partner_phone == normalized:
+            return record
+    return None
+
+
+def find_partner_by_name(sheet, name):
+    if not name:
+        return None
+    records = get_all_partner_records(sheet)
+    name_lower = name.lower().strip()
+    for record in records:
+        record_name = str(record.get("name", "")).lower().strip()
+        if record_name and (record_name in name_lower or name_lower in record_name):
+            return record
+    return None
+
+
+def add_new_partner(sheet, name, phone, guthaben):
+    try:
+        normalized_phone = normalize_phone(phone)
+        sheet.append_row([name, normalized_phone, guthaben, 0, "", "Aktiv"], 
+                        value_input_option="USER_ENTERED")
+        logger.info(f"Neuer Partner: {name}, {guthaben}€")
         return True
-        
     except Exception as e:
         logger.error(f"Fehler: {e}")
         return False
 
 
-# ─── POLLING ─────────────────────────────────
-def poll_leads():
-    if not poll_lock.acquire(blocking=False):
-        return
-    
+def update_partner_guthaben(sheet, partner, betrag):
+    row = partner["row"]
     try:
-        sheet = get_leads_sheet()
-        rows = sheet.get_all_values()
-        
-        if len(rows) <= 1:
-            return
-        
-        headers = rows[0]
-        
-        # Spalten finden
-        name_col = next((i for i, h in enumerate(headers) if "name" in h.lower()), 0)
-        email_col = next((i for i, h in enumerate(headers) if "email" in h.lower() or "e-mail" in h.lower()), 1)
-        phone_col = next((i for i, h in enumerate(headers) if "phone" in h.lower() or "telefon" in h.lower()), 2)
-        status_col = next((i for i, h in enumerate(headers) if "status" in h.lower()), 15)
-        
-        for i, row in enumerate(rows[1:], 2):
-            if len(row) <= status_col:
-                continue
-            
-            status = row[status_col].strip().upper()
-            if status not in ["", "NEU", "CREATED"]:
-                continue
-            
-            # Als PROCESSING markieren
-            sheet.update_cell(i, status_col + 1, "PROCESSING")
-            
-            name = row[name_col] if len(row) > name_col else ""
-            email = row[email_col] if len(row) > email_col else ""
-            phone = normalize_phone(row[phone_col]) if len(row) > phone_col else ""
-            
-            process_lead(name, phone, email, i)
-            
+        neues_guthaben = round(partner["guthaben"] + betrag, 2)
+        sheet.update_cell(row, 3, neues_guthaben)
+        sheet.update_cell(row, 6, "Aktiv")
+        return neues_guthaben
     except Exception as e:
-        logger.error(f"Polling Fehler: {e}")
+        logger.error(f"Fehler: {e}")
+        return partner["guthaben"]
+
+
+# ─── Stripe Zahlung verarbeiten ───────────────────────────
+def process_stripe_payment(customer_name, customer_phone, customer_email, amount):
+    logger.info(f"=== Stripe: {customer_name} | {amount}€ ===")
+    try:
+        sheet = get_partner_sheet()
+    except Exception as e:
+        logger.error(f"Sheet-Fehler: {e}")
+        return
+
+    # Partner suchen (Telefon ODER Name)
+    partner = None
+    if customer_phone:
+        partner = find_partner_by_phone(sheet, customer_phone)
+    if not partner and customer_name:
+        partner = find_partner_by_name(sheet, customer_name)
+
+    if partner:
+        neues_guthaben = update_partner_guthaben(sheet, partner, amount)
+        action = "AUFGLADEN"
+        
+        # Partner benachrichtigen
+        if partner["telefon"]:
+            msg = (f"✅ *Zahlung erhalten!*\n\n"
+                   f"💰 {amount}€ aufgeladen\n"
+                   f"📊 Neues Guthaben: {neues_guthaben}€\n"
+                   f"Du bist aktiv und erhältst Leads!")
+            send_whatsapp(partner["telefon"], msg)
+    else:
+        # Neuer Partner
+        add_new_partner(sheet, customer_name, customer_phone, amount)
+        neues_guthaben = amount
+        action = "NEUER PARTNER"
+        
+        # Neuer Partner benachrichtigen (wenn Telefon)
+        if customer_phone:
+            msg = (f"🎉 *Willkommen!*\n\n"
+                   f"Deine Anmeldung war erfolgreich!\n"
+                   f"💰 {amount}€ Guthaben\n\n"
+                   f"Du wirst jetzt automatisch Leads erhalten!")
+            send_whatsapp(normalize_phone(customer_phone), msg)
+
+    # LINA bekommt IMMER Info
+    lina_msg = (f"💰 *Stripe-Zahlung*\n\n"
+                f"👤 {customer_name}\n"
+                f"📞 {customer_phone}\n"
+                f"📧 {customer_email}\n"
+                f"💵 {amount}€\n"
+                f"✅ {action}\n"
+                f"📊 Guthaben: {neues_guthaben}€")
+    send_whatsapp(LINA_PHONE, lina_msg)
+    
+    logger.info(f"Stripe fertig: {action}")
+
+
+# ─── Lead aus Facebook Webhook ───────────────────────────
+def extract_lead_data(payload):
+    if "field_data" in payload:
+        data = {"name": "Unbekannt", "email": "", "phone": ""}
+        for field in payload.get("field_data", []):
+            field_name = field.get("name", "").lower()
+            values = field.get("values", [])
+            value = values[0] if values else ""
+            if "name" in field_name:
+                data["name"] = value
+            elif "email" in field_name:
+                data["email"] = value
+            elif "phone" in field_name:
+                data["phone"] = value
+        return data
+    
+    # Aus entry/changes
+    leadgen_id = None
+    try:
+        for entry in payload.get("entry", []):
+            for change in entry.get("changes", []):
+                leadgen_id = change.get("value", {}).get("leadgen_id")
+                if leadgen_id:
+                    break
+            if leadgen_id:
+                break
+    except:
+        pass
+    
+    if leadgen_id and FB_ACCESS_TOKEN:
+        url = f"https://graph.facebook.com/v19.0/{leadgen_id}"
+        params = {"access_token": FB_ACCESS_TOKEN}
+        try:
+            res = requests.get(url, params=params, timeout=15)
+            res.raise_for_status()
+            fb_data = res.json()
+            data = {"name": "Unbekannt", "email": "", "phone": ""}
+            for field in fb_data.get("field_data", []):
+                field_name = field.get("name", "").lower()
+                values = field.get("values", [])
+                value = values[0] if values else ""
+                if "name" in field_name:
+                    data["name"] = value
+                elif "email" in field_name:
+                    data["email"] = value
+                elif "phone" in field_name:
+                    data["phone"] = value
+            return data
+        except Exception as e:
+            logger.error(f"Facebook API Fehler: {e}")
+            return None
+    
+    return None
+
+
+def process_lead(lead_data):
+    lead_name = lead_data.get("name", "Unbekannt")
+    lead_phone = normalize_phone(lead_data.get("phone", ""))
+    lead_email = lead_data.get("email", "")
+
+    logger.info(f"=== Lead: {lead_name} | {lead_phone} ===")
+
+    try:
+        sheet = get_partner_sheet()
+    except Exception as e:
+        logger.error(f"Sheet-Fehler: {e}")
+        return {"error": str(e)}
+
+    partner = find_best_partner(sheet)
+    if not partner:
+        # Lina benachrichtigen - kein Partner
+        send_whatsapp(LINA_PHONE,
+            f"⚠️ *Lead ohne Partner!*\n\n"
+            f"👤 {lead_name}\n📞 {lead_phone}\n📧 {lead_email}")
+        log_lead(lead_name, lead_phone, lead_email, "KEIN PARTNER", "", 0, False, "KEIN_PARTNER")
+        return {"error": "Kein Partner"}
+
+    neues_guthaben = update_partner(sheet, partner)
+    
+    # Partner benachrichtigen (MIT GUTHABEN)
+    partner_msg = (f"🔔 *Neuer Lead!*\n\n"
+                   f"👤 {lead_name}\n"
+                   f"📞 {lead_phone}\n"
+                   f"📧 {lead_email}\n\n"
+                   f"💰 Guthaben: {neues_guthaben}€ verbleibend")
+    wa_result = send_whatsapp(partner["telefon"], partner_msg)
+
+    # Lina benachrichtigen
+    lina_msg = (f"✅ *Lead verteilt*\n\n"
+                f"👤 {lead_name}\n"
+                f"📞 {lead_phone}\n"
+                f"📧 {lead_email}\n\n"
+                f"➡️ {partner['name']}\n"
+                f"💰 Partner-Guthaben: {neues_guthaben}€")
+    send_whatsapp(LINA_PHONE, lina_msg)
+
+    log_lead(lead_name, lead_phone, lead_email, partner["name"], 
+             partner["telefon"], neues_guthaben, "error" not in wa_result, "VERTEILT")
+
+    return {"success": True, "partner": partner["name"], "guthaben": neues_guthaben}
+
+
+# ─── Sheet Polling ───────────────────────────
+def poll_new_leads():
+    acquired = poll_lock.acquire(blocking=False)
+    if not acquired:
+        return {"processed": 0, "message": "Bereits aktiv"}
+
+    try:
+        return _do_poll()
     finally:
         poll_lock.release()
 
 
-def poll_loop():
-    logger.info(f"Polling gestartet (alle {POLL_INTERVAL}s)")
+def _do_poll():
+    logger.info("=== Polling gestartet ===")
+    
+    try:
+        leads_sheet = get_leads_sheet()
+        partner_sheet = get_partner_sheet()
+    except Exception as e:
+        logger.error(f"Sheet-Fehler: {e}")
+        return {"error": str(e)}
+
+    all_values = leads_sheet.get_all_values()
+    if len(all_values) <= 1:
+        return {"processed": 0}
+
+    new_leads = []
+    for row_idx, row in enumerate(all_values[1:], start=2):
+        lead_status = row[15] if len(row) > 15 else ""
+        
+        if lead_status == "CREATED":
+            # SOFORT auf PROCESSING setzen
+            try:
+                leads_sheet.update_cell(row_idx, 16, "PROCESSING")
+            except Exception as e:
+                logger.error(f"Fehler beim Status-Update: {e}")
+                continue
+
+            # Intelligente Spalten-Erkennung (wie v3.2)
+            col_m = row[12] if len(row) > 12 else ""
+            col_n = row[13] if len(row) > 13 else ""
+            col_o = row[14] if len(row) > 14 else ""
+            
+            raw_values = [col_m, col_n, col_o]
+            name = "Unbekannt"
+            email = ""
+            phone_raw = ""
+            
+            for val in raw_values:
+                val_stripped = val.strip()
+                if not val_stripped:
+                    continue
+                # Telefon erkennen
+                if (val_stripped.startswith("p:") or 
+                    val_stripped.startswith("+49") or
+                    val_stripped.startswith("49") or
+                    (val_stripped.startswith("0") and len(val_stripped) > 8)):
+                    phone_raw = val_stripped
+                # Email erkennen
+                elif "@" in val_stripped:
+                    email = val_stripped
+                # Name
+                else:
+                    name = val_stripped
+            
+            new_leads.append({
+                "row": row_idx,
+                "name": name,
+                "email": email,
+                "phone": normalize_phone(phone_raw),
+            })
+
+    if not new_leads:
+        return {"processed": 0}
+
+    logger.info(f"🔥 {len(new_leads)} neue Leads")
+
+    processed = 0
+    for lead in new_leads:
+        try:
+            result = process_lead(lead)
+            if "error" not in result:
+                leads_sheet.update_cell(lead["row"], 16, "VERTEILT")
+                processed += 1
+            else:
+                leads_sheet.update_cell(lead["row"], 16, "FEHLER")
+        except Exception as e:
+            logger.error(f"Fehler bei Lead {lead['name']}: {e}")
+            try:
+                leads_sheet.update_cell(lead["row"], 16, "FEHLER")
+            except:
+                pass
+        
+        time.sleep(2)
+
+    return {"processed": processed, "total": len(new_leads)}
+
+
+def polling_loop():
+    logger.info(f"📡 Polling gestartet ({POLL_INTERVAL}s)")
     while True:
+        try:
+            poll_new_leads()
+        except Exception as e:
+            logger.error(f"Polling-Fehler: {e}")
         time.sleep(POLL_INTERVAL)
-        poll_leads()
 
 
-# ─── API ENDPOINTS ───────────────────────────
+# ─── API Endpoints ───────────────────────────
+@app.on_event("startup")
+def startup():
+    logger.info("🚀 Lead-Verteilung v4.0 gestartet")
+    threading.Thread(target=polling_loop, daemon=True).start()
+
+
 @app.get("/")
 def root():
-    return {"status": "ok", "version": "4.0-META", "meta_url": META_URL}
-
-
-@app.get("/health")
-def health():
-    return {"status": "healthy"}
-
-
-@app.get("/poll")
-def manual_poll():
-    poll_leads()
-    return {"status": "ok", "message": "Polling ausgeführt"}
+    return {"status": "ok", "version": "4.0-META", "lina": LINA_PHONE}
 
 
 @app.get("/webhook/facebook")
@@ -313,89 +563,57 @@ def fb_verify(request: Request):
 
 
 @app.post("/webhook/facebook")
-async def fb_webhook(request: Request):
+async def fb_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
-        data = await request.json()
-        entry = data.get("entry", [{}])[0]
-        changes = entry.get("changes", [{}])[0]
-        value = changes.get("value", {})
-        lead_id = value.get("leadgen_id")
-        
-        if lead_id and FB_ACCESS_TOKEN:
-            fb_url = f"https://graph.facebook.com/v18.0/{lead_id}?access_token={FB_ACCESS_TOKEN}"
-            res = requests.get(fb_url, timeout=30)
-            if res.status_code == 200:
-                lead_data = res.json()
-                fields = {f["name"]: f["values"][0] for f in lead_data.get("field_data", []) if f.get("values")}
-                
-                sheet = get_leads_sheet()
-                sheet.append_row([
-                    fields.get("full_name", ""),
-                    fields.get("email", ""),
-                    normalize_phone(fields.get("phone_number", "")),
-                    "NEU",
-                    datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                ], value_input_option="USER_ENTERED")
-        
-        return {"status": "ok"}
-    except Exception as e:
-        logger.error(f"FB Webhook Fehler: {e}")
-        return {"status": "error"}
+        payload = await request.json()
+    except:
+        return {"error": "Invalid JSON"}
+    
+    lead_data = extract_lead_data(payload)
+    if not lead_data:
+        return {"error": "Keine Lead-Daten"}
+    
+    background_tasks.add_task(process_lead, lead_data)
+    return {"status": "received"}
 
 
-@app.post("/webhook/stripe")
-async def stripe_webhook(request: Request):
+@app.post("/stripe-webhook")
+async def stripe_webhook(request: Request, background_tasks: BackgroundTasks):
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+
     try:
-        payload = await request.body()
-        sig = request.headers.get("stripe-signature", "")
-        
         if STRIPE_WEBHOOK_SECRET and sig:
             event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
         else:
             event = json.loads(payload)
-        
-        if event.get("type") == "checkout.session.completed":
-            data = event["data"]["object"]
-            amount = data.get("amount_total", 0) / 100
-            customer = data.get("customer_details", {})
-            
-            # Partner finden oder erstellen
-            sheet = get_partner_sheet()
-            partners = get_all_partners(sheet)
-            
-            partner = None
-            for p in partners:
-                if customer.get("email", "").lower() in p["name"].lower():
-                    partner = p
-                    break
-            
-            if partner:
-                new_g = partner["guthaben"] + amount
-                sheet.update_cell(partner["row"], 3, new_g)
-                sheet.update_cell(partner["row"], 6, "Aktiv")
-                action = "aufgeladen"
-            else:
-                sheet.append_row([customer.get("name", ""), "", amount, 0, "", "Aktiv"], value_input_option="USER_ENTERED")
-                new_g = amount
-                action = "neuer Partner"
-            
-            # Lina benachrichtigen
-            msg = f"💰 Stripe Zahlung\n\n👤 {customer.get('name', '')}\n💵 {amount}€\n✅ {action}\n📊 Guthaben: {new_g}€"
-            send_whatsapp(LINA_PHONE, msg)
-        
-        return {"status": "ok"}
     except Exception as e:
         logger.error(f"Stripe Fehler: {e}")
-        return {"status": "error"}
+        raise HTTPException(400, "Invalid")
+
+    if event.get("type") == "checkout.session.completed":
+        data = event["data"]["object"]
+        amount = data.get("amount_total", 0) / 100
+        cd = data.get("customer_details", {})
+        
+        customer_name = cd.get("name", "")
+        customer_email = cd.get("email", "")
+        customer_phone = cd.get("phone", "")
+        
+        if not customer_name:
+            customer_name = customer_email.split("@")[0] if customer_email else "Unbekannt"
+
+        background_tasks.add_task(process_stripe_payment, 
+                                  customer_name, customer_phone, customer_email, amount)
+        return {"status": "received"}
+
+    return {"status": "ignored"}
 
 
-# ─── STARTUP ─────────────────────────────────
-@app.on_event("startup")
-def startup():
-    logger.info("Lead-Verteilung v4.0 gestartet")
-    logger.info(f"Meta URL: {META_URL}")
-    logger.info(f"Lina Phone: {LINA_PHONE}")
-    threading.Thread(target=poll_loop, daemon=True).start()
+@app.get("/poll")
+def manual_poll():
+    result = poll_new_leads()
+    return {"status": "ok", "result": result}
 
 
 if __name__ == "__main__":
