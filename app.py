@@ -1,8 +1,8 @@
 """
-Lead-Verteilungs-Service v4.6 PRODUCTION READY
+Lead-Verteilungs-Service v4.7 PRODUCTION READY
 ===============================================
 ✅ Worksheet: "Tabellenblatt1"
-✅ Facebook Ad-Link (Spalte C)
+✅ Text-Info statt Ad-Link (funktioniert!)
 ✅ UTM-Tracking (Spalten C, D, H)
 ✅ Spalten M=Email, N=Name, O=Phone, P=Status
 ✅ Stripe-Integration (automatische Guthaben-Aufladung)
@@ -42,7 +42,7 @@ META_PHONE_ID = os.getenv("META_PHONE_ID", "623007617563961")
 META_URL = f"https://graph.facebook.com/v22.0/{META_PHONE_ID}/messages"
 
 MATZE_PHONE = "491715060008"
-LINA_PHONE = "4915170605019"  # Für Erinnerungen
+LINA_PHONE = "4915170605019"
 
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1wVevVuP1sm_2g7eg37rCYSVSoF_T6rjNj89Qkoh9DIY")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
@@ -57,12 +57,11 @@ BERLIN_TZ = pytz.timezone('Europe/Berlin')
 
 poll_lock = threading.Lock()
 
-app = FastAPI(title="Lead-Verteilungs-Service", version="4.6-PRODUCTION")
+app = FastAPI(title="Lead-Verteilungs-Service", version="4.7-PRODUCTION")
 
-# Scheduler für tägliche Erinnerungen
 scheduler = BackgroundScheduler(timezone=BERLIN_TZ)
 
-logger.info(f"✅ System v4.6 PRODUCTION gestartet | Admin → {MATZE_PHONE}")
+logger.info(f"✅ System v4.7 PRODUCTION gestartet | Admin → {MATZE_PHONE}")
 
 
 # ─── Google Sheets ───────────────────────────
@@ -113,7 +112,7 @@ def log_lead(lead_name, lead_phone, lead_email, partner_name, partner_phone,
         logger.error(f"Log-Fehler: {e}")
 
 
-# ─── Meta WhatsApp (✅ MIT 24H-FENSTER-ERKENNUNG!) ───
+# ─── Meta WhatsApp (MIT 24H-FENSTER-ERKENNUNG) ───
 def send_whatsapp(phone, message):
     if not phone or len(phone) < 10:
         logger.error(f"Ungültige Nummer: {phone}")
@@ -146,10 +145,9 @@ def send_whatsapp(phone, message):
             error_text = res.text
             logger.error(f"Meta API Error: {error_text}")
 
-            # ✅ 24H-FENSTER-ERKENNUNG (Error Code 100)
+            # 24H-FENSTER-ERKENNUNG
             if '"code":100' in error_text or "outside the 24-hour window" in error_text.lower():
                 logger.warning(f"⚠️ 24h-Fenster geschlossen für {phone}")
-                # Admin benachrichtigen
                 send_whatsapp(MATZE_PHONE,
                     f"⚠️ *24h-Fenster geschlossen!*\n\n"
                     f"Partner: {phone}\n\n"
@@ -293,7 +291,7 @@ def update_partner_guthaben(sheet, partner, betrag):
         return partner["guthaben"]
 
 
-# ─── Lead-Verteilung (✅ MIT ALLEM!) ─────────
+# ─── Lead-Verteilung (✅ TEXT-INFO STATT LINK!) ───
 def process_lead(lead_data):
     lead_name = lead_data.get("name", "Unbekannt")
     lead_phone = normalize_phone(lead_data.get("phone", ""))
@@ -324,23 +322,35 @@ def process_lead(lead_data):
 
     neues_guthaben = update_partner(sheet, partner)
 
-    # ✅ PARTNER-NACHRICHT (MIT AKTUELLEM GUTHABEN + AD-LINK!)
+    # ✅ PARTNER-NACHRICHT (TEXT-INFO STATT LINK!)
     partner_msg = f"🔔 *Neuer Lead!*\n\n👤 {lead_name}\n📞 {lead_phone}\n📧 {lead_email}\n"
 
     if campaign_name:
         partner_msg += f"\n📊 Kampagne: {campaign_name}"
     if ad_name:
         partner_msg += f"\n🎯 Anzeige: {ad_name}"
-    if ad_id:
-        ad_url = f"https://www.facebook.com/ads/library/?id={ad_id}"
-        partner_msg += f"\n\n🔗 Anzeige ansehen:\n{ad_url}"
+
+    # Lead-Quelle beschreiben (OHNE Link!)
+    partner_msg += f"\n\n💬 *Lead kam über:*\n"
+
+    if ad_name:
+        ad_name_lower = ad_name.lower()
+        
+        if "porsche" in ad_name_lower or "reel" in ad_name_lower:
+            partner_msg += "➡️ Reel über LR & Porsche\n   (Lifestyle, Autos, Erfolg)"
+        elif "wage" in ad_name_lower or "clean" in ad_name_lower or "geld" in ad_name_lower:
+            partner_msg += "➡️ Online Geld verdienen\n   (Nebeneinkommen, Flexibilität)"
+        else:
+            partner_msg += f"➡️ {ad_name}"
+    else:
+        partner_msg += f"➡️ {campaign_name}" if campaign_name else "➡️ Werbeanzeige"
 
     partner_msg += f"\n\n💰 *Dein aktuelles Guthaben: {neues_guthaben}€*"
 
     wa_result = send_whatsapp(partner["telefon"], partner_msg)
     time.sleep(2)
 
-    # ✅ ADMIN-NACHRICHT (MATZE SIEHT ALLES!)
+    # ADMIN-NACHRICHT
     matze_msg = f"✅ *Lead verteilt*\n\n👤 {lead_name}\n📞 {lead_phone}\n📧 {lead_email}\n"
     if campaign_name:
         matze_msg += f"\n📊 {campaign_name}"
@@ -357,7 +367,7 @@ def process_lead(lead_data):
     return {"success": True, "partner": partner["name"], "guthaben": neues_guthaben}
 
 
-# ─── Stripe-Zahlung (✅ AUTOMATISCH!) ────────
+# ─── Stripe-Zahlung ──────────────────────────
 def process_stripe_payment(customer_name, customer_phone, customer_email, amount):
     logger.info(f"=== STRIPE: {customer_name} | {amount}€ ===")
 
@@ -383,7 +393,6 @@ def process_stripe_payment(customer_name, customer_phone, customer_email, amount
         action = "NEUER PARTNER ANGELEGT"
         partner_name = customer_name
 
-    # Partner benachrichtigen
     if customer_phone and normalize_phone(customer_phone):
         partner_msg = (
             f"✅ *Zahlung erhalten!*\n\n"
@@ -395,7 +404,6 @@ def process_stripe_payment(customer_name, customer_phone, customer_email, amount
 
     time.sleep(2)
 
-    # Admin benachrichtigen
     matze_msg = (
         f"💰 *Stripe-Zahlung eingegangen!*\n\n"
         f"👤 {customer_name}\n"
@@ -409,12 +417,8 @@ def process_stripe_payment(customer_name, customer_phone, customer_email, amount
     send_whatsapp(MATZE_PHONE, matze_msg)
 
 
-# ─── Tägliche Erinnerungen (✅ 08:00 UHR!) ───
+# ─── Tägliche Erinnerungen (08:00 UHR) ───────
 def send_daily_reminders():
-    """
-    Sendet jeden Morgen um 08:00 Uhr Erinnerung an alle aktiven Partner.
-    Hält das 24h-Fenster offen!
-    """
     logger.info("=== TÄGLICHE ERINNERUNGEN (08:00 Uhr) ===")
 
     try:
@@ -454,13 +458,12 @@ def send_daily_reminders():
                 logger.info(f"✅ Reminder gesendet an {partner['name']}")
                 erfolg += 1
 
-            time.sleep(3)  # Rate-Limit-Schutz
+            time.sleep(3)
 
         except Exception as e:
             logger.error(f"Reminder-Exception für {partner['name']}: {e}")
             fehler += 1
 
-    # Admin-Info
     send_whatsapp(MATZE_PHONE,
         f"✅ *Tägliche Reminder versendet*\n\n"
         f"📤 {erfolg} erfolgreich\n"
@@ -582,9 +585,8 @@ def polling_loop():
 # ─── API Endpoints ───────────────────────────
 @app.on_event("startup")
 def startup():
-    logger.info("🚀 Lead-Verteilung v4.6 PRODUCTION READY gestartet")
+    logger.info("🚀 Lead-Verteilung v4.7 PRODUCTION READY gestartet")
 
-    # ✅ TÄGLICHE ERINNERUNGEN (08:00 UHR)
     scheduler.add_job(
         send_daily_reminders,
         trigger=CronTrigger(hour=8, minute=0, timezone=BERLIN_TZ),
@@ -595,18 +597,16 @@ def startup():
     scheduler.start()
     logger.info("✅ Scheduler gestartet (tägliche Erinnerungen um 08:00 Uhr)")
 
-    # Lead-Polling starten
     threading.Thread(target=polling_loop, daemon=True).start()
     logger.info("✅ Lead-Polling gestartet")
 
-    # Admin-Start-Nachricht
     send_whatsapp(MATZE_PHONE,
         f"🚀 *System gestartet!*\n\n"
-        f"Lead-Verteilungs-Service v4.6\n\n"
+        f"Lead-Verteilungs-Service v4.7\n\n"
         f"✅ Lead-Polling aktiv\n"
         f"✅ WhatsApp-Integration aktiv\n"
         f"✅ Stripe-Webhook aktiv\n"
-        f"✅ UTM-Tracking + Facebook-Links\n"
+        f"✅ UTM-Tracking (Text-Info)\n"
         f"✅ Tägliche Erinnerungen (08:00 Uhr)\n"
         f"✅ 24h-Fenster-Erkennung aktiv\n"
         f"✅ Aktuelles Guthaben in jeder Nachricht\n"
@@ -618,7 +618,7 @@ def startup():
 def root():
     return {
         "status": "ok",
-        "version": "4.6-PRODUCTION",
+        "version": "4.7-PRODUCTION",
         "admin": MATZE_PHONE,
         "features": [
             "Automatische Lead-Verteilung",
@@ -626,7 +626,7 @@ def root():
             "Stripe-Integration",
             "Tägliche Erinnerungen (08:00 Uhr)",
             "24h-Fenster-Erkennung",
-            "UTM-Tracking + Facebook Ad-Links",
+            "UTM-Tracking (Text-Info)",
             "Aktuelles Guthaben in jeder Nachricht",
             "Automatische Partner-Pausierung"
         ]
@@ -681,7 +681,6 @@ def manual_poll():
 
 @app.get("/test-reminder")
 def test_reminder():
-    """Test-Endpoint für tägliche Erinnerungen (NICHT in Produktion nutzen!)"""
     send_daily_reminders()
     return {"status": "reminder_sent"}
 
