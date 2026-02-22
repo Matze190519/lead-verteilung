@@ -1,39 +1,15 @@
 """
-Lead-Verteilungs-Service v5.2 - Spalten-Fix + vollständiger UTM-Tracking
-=========================================================================
-
-CHANGELOG v5.2:
-- ✅ Korrektes Spalten-Mapping (Name=N, Email=M, Phone=O, Status=P)
-- ✅ Vollständige UTM-Integration (Kampagne, Anzeige, Facebook-Ads-Library-Link)
-- ✅ Status-Filter: nur CREATED-Leads werden verarbeitet
-- ✅ Partner-WhatsApp enthält Kampagnen-Info + Ad-Link
-- ✅ Admin-Benachrichtigung mit Kampagnen-Daten
-- ✅ Tägliche Erinnerungen um 08:00 Uhr
-- ✅ 24h-Fenster-Erkennung (Error #100)
-
-SPALTEN-MAPPING (Google Sheets):
-A = id
-B = created_time
-C = ad_id
-D = ad_name
-E = adset_id
-F = adset_name
-G = campaign_id
-H = campaign_name
-I = form_id
-J = form_name
-K = is_organic
-L = platform
-M = e-mail-adresse
-N = vollständiger_name
-O = telefonnummer
-P = lead_status
+Lead-Verteilungs-Service v5.2 - FINAL FIX
+==========================================
+- oauth2client → google-auth (modern)
+- Alle Dependencies korrekt
+- Environment Variables
 """
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 import requests
 import json
 import logging
@@ -45,69 +21,37 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
 
-# ===========================
-# LOGGING KONFIGURATION
-# ===========================
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# ===========================
-# META WHATSAPP API CONFIG
-# ===========================
-META_TOKEN = "EAAVZBgrngqUwBO9W2lGDKGPAX7dT5tD4mpMgXiCZCW9MhOPfjILEqm5bZAJZAi0eWq9hSdHn3Aoy7ej72E7ZCnvxXp0ZBQRIyY9jqm1u5UcOQm90eqkIZCQkfhPGQZBgsBm4mjQCw93AKKoJXqLrvCYwZAFZBEG1uKsmMPDbmZBPDQ2e3vF2hhZBphYJWJU9e5IgZDZD"
-META_PHONE_ID = "623007617563961"
+META_TOKEN = os.getenv("META_TOKEN")
+META_PHONE_ID = os.getenv("META_PHONE_ID", "623007617563961")
 META_URL = f"https://graph.facebook.com/v22.0/{META_PHONE_ID}/messages"
+MATZE_PHONE = os.getenv("MATZE_PHONE", "491715060008")
 
-# Admin-Nummer (Matze)
-MATZE_PHONE = "491715060008"
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
-# ===========================
-# STRIPE KONFIGURATION
-# ===========================
-stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "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")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "whsec_urcxW3DyRxhcAM25Q7wJvGdMzHFoTGAu")
-
-# ===========================
-# GOOGLE SHEETS KONFIGURATION
-# ===========================
 SCOPES = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-SHEET_ID = "1wVevVuP1sm_2g7eg37rCYSVSoF_T6rjNj89Qkoh9DIY"
-CREDENTIALS_JSON = {
-    "type": "service_account",
-    "project_id": "leadverteilung",
-    "private_key_id": "4bc0fa18ba3a9f7baa9dec4d5bc6f25cf0ae7fa0",
-    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDlvHeCPY3xLI+P\nmS/0r6wqtxnlPEm5bQpZgPt4oIMAZDCBBl1W+zfwggvwZPGZO3jZGc8X8jkDPAEb\nJ8BsNWEqXL6bz2WVCK5dZIw/LSl1Gy3IVBf5lR7H/LqKcgBWYz3e7Hpe/6C5V4uS\nMqCVyOE8ZJ7K0JuDn+8oKxULhB7HzkGDKGWZcYHg7bL5nt9TXkW5aCDWx1Zb1LQX\nVmYnG9gFMZoB8ZX3HpI9C5qY0P5LqNKdVLz7Q8z7L5xBFqYQJ7k8HZz5L5xBFqYQ\nJ7k8HZz5L5xBFqYQJ7k8HZzP5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqY\nQJ7k8HZzAgMBAAECggEABYx7xL5Z8H3qY7z5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HQKBgQD5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7\nk8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7\nk8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7\nk8HZz5L5xBFqYQKBgQDrxBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZ\nz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZ\nz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZ\nz5L5xBFqYQKBgQD5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5\nxBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5\nxBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5\nxBFqYQKBgH5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqY\nQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqY\nQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqY\nQKBgH5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQ\n-----END PRIVATE KEY-----\n",
-    "client_email": "leadverteilung@leadverteilung.iam.gserviceaccount.com",
-    "client_id": "111695653356748356050",
-    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-    "token_uri": "https://oauth2.googleapis.com/token",
-    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/leadverteilung%40leadverteilung.iam.gserviceaccount.com"
-}
+SHEET_ID = os.getenv("SHEET_ID", "1wVevVuP1sm_2g7eg37rCYSVSoF_T6rjNj89Qkoh9DIY")
+CREDENTIALS_JSON = json.loads(os.getenv("GOOGLE_CREDENTIALS_JSON", "{}"))
 
-# ===========================
-# GLOBALE VARIABLEN
-# ===========================
 LEAD_PREIS = 5.0
 processed_lead_ids = set()
 partner_responses_today = set()
 
-# ===========================
-# FASTAPI INIT
-# ===========================
 app = FastAPI(title="Lead-Verteilungs-Service v5.2")
-
-# ===========================
-# HELPER FUNCTIONS
-# ===========================
 
 def get_google_sheets_client():
     """Verbindung zu Google Sheets"""
     try:
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(CREDENTIALS_JSON, SCOPES)
+        creds = Credentials.from_service_account_info(
+            CREDENTIALS_JSON,
+            scopes=SCOPES
+        )
         client = gspread.authorize(creds)
         return client
     except Exception as e:
@@ -647,7 +591,7 @@ async def startup_event():
     import threading
     
     logger.info("=" * 60)
-    logger.info("🚀 Lead-Verteilungs-Service v5.2 - Spalten-Fix + UTM")
+    logger.info("🚀 Lead-Verteilungs-Service v5.2 - FINAL")
     logger.info("=" * 60)
     logger.info("✅ System gestartet")
     logger.info(f"📱 Admin-Benachrichtigung → {MATZE_PHONE}")
@@ -680,22 +624,8 @@ Alle Systeme bereit! 🎯"""
 async def root():
     return {
         "service": "Lead-Verteilungs-Service",
-        "version": "5.2",
-        "status": "running",
-        "features": [
-            "Lead-Polling",
-            "WhatsApp-Integration (Meta Cloud API)",
-            "Stripe-Webhook",
-            "UTM-Tracking (Kampagne + Anzeige + Facebook-Link)",
-            "Tägliche Erinnerungen (08:00 Uhr)",
-            "24h-Fenster-Erkennung"
-        ],
-        "spalten_mapping": {
-            "M": "e-mail-adresse",
-            "N": "vollständiger_name",
-            "O": "telefonnummer",
-            "P": "lead_status"
-        }
+        "version": "5.2-FINAL",
+        "status": "running"
     }
 
 @app.get("/health")
