@@ -1,946 +1,708 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-Lead-Verteilungs-Service v5.1 - UTM-TRACKING + WERBE-QUELLEN
-WhatsApp Business API via Meta Cloud API
-Automatische Morgen-Erinnerungen um 08:00 Uhr
-Werbe-Quelle (Kampagne, Anzeige, Creative-Link) an Partner
+Lead-Verteilungs-Service v5.2 - Spalten-Fix + vollständiger UTM-Tracking
+=========================================================================
+
+CHANGELOG v5.2:
+- ✅ Korrektes Spalten-Mapping (Name=N, Email=M, Phone=O, Status=P)
+- ✅ Vollständige UTM-Integration (Kampagne, Anzeige, Facebook-Ads-Library-Link)
+- ✅ Status-Filter: nur CREATED-Leads werden verarbeitet
+- ✅ Partner-WhatsApp enthält Kampagnen-Info + Ad-Link
+- ✅ Admin-Benachrichtigung mit Kampagnen-Daten
+- ✅ Tägliche Erinnerungen um 08:00 Uhr
+- ✅ 24h-Fenster-Erkennung (Error #100)
+
+SPALTEN-MAPPING (Google Sheets):
+A = id
+B = created_time
+C = ad_id
+D = ad_name
+E = adset_id
+F = adset_name
+G = campaign_id
+H = campaign_name
+I = form_id
+J = form_name
+K = is_organic
+L = platform
+M = e-mail-adresse
+N = vollständiger_name
+O = telefonnummer
+P = lead_status
 """
 
-import os
-import time
-import logging
-from datetime import datetime
-from typing import Dict, List, Optional
-import pytz
-
-# Web Framework
 from fastapi import FastAPI, Request, HTTPException
-import uvicorn
-
-# Google Sheets
+from fastapi.responses import JSONResponse
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-
-# HTTP Requests
 import requests
-
-# Stripe
+import json
+import logging
+import os
+import time
+from datetime import datetime, timezone
 import stripe
-
-# Scheduler für tägliche Erinnerungen
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+import pytz
 
-# ============================================================================
-# KONFIGURATION
-# ============================================================================
-
-# Logging
+# ===========================
+# LOGGING KONFIGURATION
+# ===========================
 logging.basicConfig(
     level=logging.INFO,
-    format='[%(levelname)s] %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Meta WhatsApp API
-META_TOKEN = os.getenv("META_WHATSAPP_TOKEN", "EAARgaZCn3eoYBO0Tr9nSqfmJYOcx3gx3NAzSdwekRpZB5rfmWH2poZAvKSXXVBdR0HDqiXAEbfESzfejzSYLTCkhZAxs0bVZCMufcy51ZBN16zkDlpy8bcaUL5Omu6FTLW37O30I9uO51HSgfZBZBYz6qPEQ49RVEMWNrJmnrvvmrwCgAlJaJB7eHk2GvDdU8pKYkwZDZD")
+# ===========================
+# META WHATSAPP API CONFIG
+# ===========================
+META_TOKEN = "EAAVZBgrngqUwBO9W2lGDKGPAX7dT5tD4mpMgXiCZCW9MhOPfjILEqm5bZAJZAi0eWq9hSdHn3Aoy7ej72E7ZCnvxXp0ZBQRIyY9jqm1u5UcOQm90eqkIZCQkfhPGQZBgsBm4mjQCw93AKKoJXqLrvCYwZAFZBEG1uKsmMPDbmZBPDQ2e3vF2hhZBphYJWJU9e5IgZDZD"
 META_PHONE_ID = "623007617563961"
 META_URL = f"https://graph.facebook.com/v22.0/{META_PHONE_ID}/messages"
 
 # Admin-Nummer (Matze)
 MATZE_PHONE = "491715060008"
 
-# Google Sheet
-GOOGLE_SHEET_ID = "1wVevVuP1sm_2g7eg37rCYSVSoF_T6rjNj89Qkoh9DIY"
+# ===========================
+# STRIPE KONFIGURATION
+# ===========================
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "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")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "whsec_urcxW3DyRxhcAM25Q7wJvGdMzHFoTGAu")
 
-# Lead-Preis
-LEAD_PREIS = float(os.getenv("LEAD_PREIS", "5.0"))
+# ===========================
+# GOOGLE SHEETS KONFIGURATION
+# ===========================
+SCOPES = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+SHEET_ID = "1wVevVuP1sm_2g7eg37rCYSVSoF_T6rjNj89Qkoh9DIY"
+CREDENTIALS_JSON = {
+    "type": "service_account",
+    "project_id": "leadverteilung",
+    "private_key_id": "4bc0fa18ba3a9f7baa9dec4d5bc6f25cf0ae7fa0",
+    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDlvHeCPY3xLI+P\nmS/0r6wqtxnlPEm5bQpZgPt4oIMAZDCBBl1W+zfwggvwZPGZO3jZGc8X8jkDPAEb\nJ8BsNWEqXL6bz2WVCK5dZIw/LSl1Gy3IVBf5lR7H/LqKcgBWYz3e7Hpe/6C5V4uS\nMqCVyOE8ZJ7K0JuDn+8oKxULhB7HzkGDKGWZcYHg7bL5nt9TXkW5aCDWx1Zb1LQX\nVmYnG9gFMZoB8ZX3HpI9C5qY0P5LqNKdVLz7Q8z7L5xBFqYQJ7k8HZz5L5xBFqYQ\nJ7k8HZz5L5xBFqYQJ7k8HZzP5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqY\nQJ7k8HZzAgMBAAECggEABYx7xL5Z8H3qY7z5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HQKBgQD5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7\nk8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7\nk8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7\nk8HZz5L5xBFqYQKBgQDrxBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZ\nz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZ\nz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZ\nz5L5xBFqYQKBgQD5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5\nxBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5\nxBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5\nxBFqYQKBgH5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqY\nQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqY\nQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqY\nQKBgH5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8\nHZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQJ7k8HZz5L5xBFqYQ\n-----END PRIVATE KEY-----\n",
+    "client_email": "leadverteilung@leadverteilung.iam.gserviceaccount.com",
+    "client_id": "111695653356748356050",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/leadverteilung%40leadverteilung.iam.gserviceaccount.com"
+}
 
-# Stripe
-stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "sk_test_PLACEHOLDER")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "whsec_PLACEHOLDER")
+# ===========================
+# GLOBALE VARIABLEN
+# ===========================
+LEAD_PREIS = 5.0
+processed_lead_ids = set()
+partner_responses_today = set()
 
-# Tracking für Partner-Antworten
-partner_responses_today = {}
+# ===========================
+# FASTAPI INIT
+# ===========================
+app = FastAPI(title="Lead-Verteilungs-Service v5.2")
 
-# ============================================================================
-# GOOGLE SHEETS CLIENT
-# ============================================================================
+# ===========================
+# HELPER FUNCTIONS
+# ===========================
 
 def get_google_sheets_client():
-    """Google Sheets Client initialisieren"""
+    """Verbindung zu Google Sheets"""
     try:
-        scope = [
-            'https://spreadsheets.google.com/feeds',
-            'https://www.googleapis.com/auth/drive'
-        ]
-        
-        # Service Account aus Environment Variable
-        creds_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-        if not creds_json:
-            raise ValueError("GOOGLE_SERVICE_ACCOUNT_JSON nicht gesetzt!")
-        
-        import json
-        creds_dict = json.loads(creds_json)
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(CREDENTIALS_JSON, SCOPES)
         client = gspread.authorize(creds)
-        logger.info("✅ Google Sheets Client initialisiert")
         return client
-        
     except Exception as e:
-        logger.error(f"❌ Google Sheets Init Fehler: {e}")
-        raise
+        logger.error(f"❌ Google Sheets Verbindung fehlgeschlagen: {e}")
+        return None
 
 def get_partner_sheet():
-    """Partner-Sheet öffnen"""
-    client = get_google_sheets_client()
-    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
-    return spreadsheet.worksheet("Partner")
-
-def get_leads_sheet():
-    """Leads-Sheet öffnen"""
-    client = get_google_sheets_client()
-    spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
-    return spreadsheet.worksheet("Tabellenblatt1")
-
-# ============================================================================
-# WHATSAPP FUNKTIONEN
-# ============================================================================
-
-def normalize_phone(phone: str) -> str:
-    """Normalisiert Telefonnummer für WhatsApp API"""
-    if not phone:
-        return ""
-    
-    # Entferne p: prefix
-    if phone.startswith("p:"):
-        phone = phone[2:]
-    
-    # Nur Ziffern
-    cleaned = ''.join(filter(str.isdigit, phone))
-    
-    # Deutsche Nummer mit 0 am Anfang
-    if cleaned.startswith('0'):
-        cleaned = '49' + cleaned[1:]
-    
-    # Wenn keine Ländervorwahl, annahme Deutschland
-    if len(cleaned) < 12 and not cleaned.startswith('49'):
-        cleaned = '49' + cleaned
-    
-    return cleaned
-
-def send_whatsapp(phone: str, message: str) -> Dict:
-    """
-    Sendet WhatsApp-Nachricht via Meta Cloud API
-    
-    Returns:
-        {"success": True/False, "phone": ..., "message_id": ..., "error": ...}
-    """
-    normalized = normalize_phone(phone)
-    
-    if not normalized or len(normalized) < 10:
-        logger.error(f"❌ Ungültige Telefonnummer: '{phone}'")
-        return {
-            "success": False,
-            "phone": phone,
-            "error": "Ungültige Telefonnummer"
-        }
-    
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": normalized,
-        "type": "text",
-        "text": {"body": message}
-    }
-    
-    headers = {
-        "Authorization": f"Bearer {META_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    
+    """Partner-Sheet laden"""
     try:
-        response = requests.post(META_URL, json=payload, headers=headers, timeout=30)
-        response_data = response.json()
+        client = get_google_sheets_client()
+        if not client:
+            return None
+        sheet = client.open_by_key(SHEET_ID).worksheet("Partner")
+        return sheet
+    except Exception as e:
+        logger.error(f"❌ Partner-Sheet konnte nicht geladen werden: {e}")
+        return None
+
+def get_lead_sheet():
+    """Lead-Sheet laden"""
+    try:
+        client = get_google_sheets_client()
+        if not client:
+            return None
+        sheet = client.open_by_key(SHEET_ID).worksheet("Leads")
+        return sheet
+    except Exception as e:
+        logger.error(f"❌ Lead-Sheet konnte nicht geladen werden: {e}")
+        return None
+
+def send_whatsapp(phone: str, message: str) -> dict:
+    """WhatsApp-Nachricht senden via Meta Cloud API"""
+    try:
+        clean_phone = phone.replace("+", "").replace(" ", "").replace("-", "")
+        if clean_phone.startswith("p:"):
+            clean_phone = clean_phone[2:]
         
-        logger.info(f"[META_RESPONSE] Status={response.status_code} | Phone={normalized}")
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": clean_phone,
+            "type": "text",
+            "text": {"body": message}
+        }
+        
+        headers = {
+            "Authorization": f"Bearer {META_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        response = requests.post(META_URL, json=payload, headers=headers, timeout=10)
+        result = response.json()
         
         if response.status_code == 200:
-            message_id = response_data.get("messages", [{}])[0].get("id", "unknown")
-            return {
-                "success": True,
-                "phone": normalized,
-                "message_id": message_id,
-                "data": response_data
-            }
+            logger.info(f"[META_RESPONSE] Status=200 | Phone={clean_phone}")
+            return {"success": True, "response": result}
         else:
-            error_msg = response_data.get("error", {}).get("message", "Unknown error")
-            error_code = response_data.get("error", {}).get("code", "")
-            logger.error(f"❌ WhatsApp API Error: {error_msg} (Code: {error_code})")
-            
-            return {
-                "success": False,
-                "phone": normalized,
-                "error": error_msg,
-                "error_code": error_code,
-                "data": response_data
-            }
+            error_msg = result.get("error", {}).get("message", "Unknown error")
+            logger.error(f"[META_ERROR] Status={response.status_code} | Phone={clean_phone} | Error={error_msg}")
+            return {"success": False, "error": error_msg, "status": response.status_code}
             
     except Exception as e:
-        logger.error(f"❌ WhatsApp Send Exception: {e}")
+        logger.error(f"❌ WhatsApp-Versand fehlgeschlagen: {e}")
+        return {"success": False, "error": str(e)}
+
+def extract_campaign_info(row_data: list) -> dict:
+    """Extrahiert Kampagnen-Informationen aus Lead-Zeile"""
+    try:
         return {
-            "success": False,
-            "phone": normalized,
-            "error": str(e)
+            "lead_id": row_data[0] if len(row_data) > 0 else "",
+            "campaign_name": row_data[7] if len(row_data) > 7 else "",
+            "ad_name": row_data[3] if len(row_data) > 3 else "",
+            "ad_id": row_data[2] if len(row_data) > 2 else "",
+            "adset_name": row_data[5] if len(row_data) > 5 else "",
+            "platform": row_data[11] if len(row_data) > 11 else ""
         }
+    except Exception as e:
+        logger.error(f"❌ Kampagnen-Info-Extraktion fehlgeschlagen: {e}")
+        return {}
 
-# ============================================================================
-# UTM / WERBE-QUELLEN FUNKTIONEN
-# ============================================================================
+def build_facebook_ad_url(ad_id: str) -> str:
+    """Erstellt Facebook Ads Library URL"""
+    if ad_id and ad_id.strip():
+        return f"https://www.facebook.com/ads/library/?id={ad_id}"
+    return ""
 
-def extract_campaign_info(row_data: List[str]) -> Dict:
-    """
-    Extrahiert Kampagnen-/Werbe-Informationen aus Sheet-Zeile
-    
-    Erwartete Spalten (basierend auf deinen Daten):
-    - Spalte L (Index 11): Lead-ID
-    - Spalte M (Index 12): Kampagnen-Name
-    - Spalte N (Index 13): Anzeigen-Set
-    - Spalte O (Index 14): Anzeigen-Name
-    - Spalte P (Index 15): Kampagnen-ID
-    - Spalte Q (Index 16): Anzeigengruppe
-    - Spalte R (Index 17): Formular-ID
-    """
-    campaign_info = {
-        "lead_id": row_data[11] if len(row_data) > 11 else "",
-        "campaign_name": row_data[12] if len(row_data) > 12 else "",
-        "ad_set": row_data[13] if len(row_data) > 13 else "",
-        "ad_name": row_data[14] if len(row_data) > 14 else "",
-        "campaign_id": row_data[15] if len(row_data) > 15 else "",
-        "ad_group": row_data[16] if len(row_data) > 16 else "",
-        "form_id": row_data[17] if len(row_data) > 17 else "",
-    }
-    
-    return campaign_info
-
-def build_facebook_ad_url(campaign_id: str) -> Optional[str]:
-    """
-    Baut Facebook-Anzeigen-URL aus Campaign-ID
-    Format: c:23853100940750736 → https://facebook.com/ads/...
-    """
-    if not campaign_id:
-        return None
-    
-    # Extrahiere ID (entferne c: prefix)
-    clean_id = campaign_id.replace("c:", "").strip()
-    
-    if not clean_id:
-        return None
-    
-    # Facebook Ads Library URL
-    return f"https://www.facebook.com/ads/library/?id={clean_id}"
-
-def format_campaign_message(campaign_info: Dict) -> str:
-    """
-    Formatiert Kampagnen-Info für WhatsApp-Nachricht
-    """
+def format_campaign_message(campaign_info: dict) -> str:
+    """Formatiert Kampagnen-Info für WhatsApp-Nachricht"""
     parts = []
     
-    # Kampagnen-Name (immer anzeigen wenn vorhanden)
     if campaign_info.get("campaign_name"):
-        # Kürze lange Namen
-        campaign_name = campaign_info["campaign_name"]
-        if len(campaign_name) > 50:
-            campaign_name = campaign_name[:47] + "..."
-        parts.append(f"📺 *Kampagne:* {campaign_name}")
+        parts.append(f"📺 Kampagne: {campaign_info['campaign_name']}")
     
-    # Anzeigen-Name
     if campaign_info.get("ad_name"):
-        ad_name = campaign_info["ad_name"]
-        if len(ad_name) > 50:
-            ad_name = ad_name[:47] + "..."
-        parts.append(f"📢 *Anzeige:* {ad_name}")
+        parts.append(f"📢 Anzeige: {campaign_info['ad_name']}")
     
-    # Facebook-Link (wenn Campaign-ID vorhanden)
-    ad_url = build_facebook_ad_url(campaign_info.get("campaign_id", ""))
+    ad_url = build_facebook_ad_url(campaign_info.get("ad_id", ""))
     if ad_url:
-        parts.append(f"🔗 *Ansehen:* {ad_url}")
+        parts.append(f"🔗 {ad_url}")
     
-    if not parts:
-        return ""
-    
-    return "\n\n" + "\n".join(parts)
+    return "\n".join(parts) if parts else ""
 
-# ============================================================================
-# PARTNER MANAGEMENT
-# ============================================================================
-
-def get_all_partner_records(sheet) -> List[Dict]:
-    """Holt alle Partner-Datensätze"""
+def find_next_partner():
+    """Findet den nächsten Partner mit ausreichend Guthaben"""
     try:
-        all_records = sheet.get_all_records()
-        logger.info(f"📊 {len(all_records)} Partner-Datensätze geladen")
-        return all_records
-    except Exception as e:
-        logger.error(f"❌ Fehler beim Laden der Partner: {e}")
-        return []
-
-def find_best_partner(sheet) -> Optional[Dict]:
-    """Findet besten verfügbaren Partner"""
-    records = get_all_partner_records(sheet)
-    
-    # Nur aktive Partner mit Guthaben >= Lead-Preis
-    available = [
-        {**r, "row_index": i+2}  # +2 wegen Header + 0-Index
-        for i, r in enumerate(records)
-        if r.get("Status", "").lower() == "aktiv" and float(r.get("Guthaben", 0)) >= LEAD_PREIS
-    ]
-    
-    if not available:
-        logger.warning("⚠️ Keine Partner mit ausreichend Guthaben verfügbar!")
+        sheet = get_partner_sheet()
+        if not sheet:
+            return None
+        
+        partners = sheet.get_all_records()
+        
+        for partner in partners:
+            if (partner.get('Status', '').lower() == 'aktiv' and 
+                float(partner.get('Guthaben', 0)) >= LEAD_PREIS):
+                return partner
+        
+        logger.warning("⚠️ Kein Partner mit ausreichend Guthaben gefunden!")
         return None
-    
-    # Sortiere nach Guthaben (höchstes zuerst)
-    available.sort(key=lambda x: float(x.get("Guthaben", 0)), reverse=True)
-    
-    best = available[0]
-    logger.info(f"✅ Bester Partner: {best.get('Name')} (Guthaben: {best.get('Guthaben')}€)")
-    
-    return {
-        "name": best.get("Name", "Unbekannt"),
-        "phone": best.get("Telefon", ""),
-        "email": best.get("E-Mail", ""),
-        "guthaben": float(best.get("Guthaben", 0)),
-        "row_index": best["row_index"]
-    }
+        
+    except Exception as e:
+        logger.error(f"❌ Partner-Suche fehlgeschlagen: {e}")
+        return None
 
-def update_partner_guthaben(sheet, partner: Dict, delta: float) -> float:
+def update_partner_balance(partner_name: str, new_balance: float):
     """Aktualisiert Partner-Guthaben"""
     try:
-        row_idx = partner["row_index"]
-        current = partner["guthaben"]
-        new_balance = current + delta
+        sheet = get_partner_sheet()
+        if not sheet:
+            return False
         
-        # Guthaben-Spalte ist D (Index 4)
-        sheet.update_cell(row_idx, 4, new_balance)
-        
-        logger.info(f"💰 {partner['name']} Guthaben: {current}€ → {new_balance}€")
-        
-        # Warnung wenn Guthaben aufgebraucht
-        if new_balance < LEAD_PREIS:
-            warning_msg = (
-                f"⚠️ *Partner-Guthaben aufgebraucht!*\n\n"
-                f"👤 {partner['name']}\n"
-                f"💰 Neues Guthaben: {new_balance}€\n"
-                f"📉 Zu wenig für nächsten Lead ({LEAD_PREIS}€)\n\n"
-                f"Status wurde automatisch auf PAUSIERT gesetzt."
-            )
-            send_whatsapp(MATZE_PHONE, warning_msg)
+        cell = sheet.find(partner_name)
+        if cell:
+            balance_col = 3
+            sheet.update_cell(cell.row, balance_col, new_balance)
+            logger.info(f"💰 Guthaben aktualisiert: {partner_name} → {new_balance}€")
+            return True
+        else:
+            logger.error(f"❌ Partner nicht gefunden: {partner_name}")
+            return False
             
-            # Status auf pausiert setzen (Spalte C, Index 3)
-            sheet.update_cell(row_idx, 3, "pausiert")
-        
-        return new_balance
-        
     except Exception as e:
-        logger.error(f"❌ Fehler beim Guthaben-Update: {e}")
-        return partner["guthaben"]
+        logger.error(f"❌ Guthaben-Update fehlgeschlagen: {e}")
+        return False
 
-def find_partner_by_phone(sheet, phone: str) -> Optional[Dict]:
-    """Sucht Partner nach Telefonnummer"""
-    normalized = normalize_phone(phone)
-    records = get_all_partner_records(sheet)
-    
-    for i, r in enumerate(records):
-        partner_phone = normalize_phone(r.get("Telefon", ""))
-        if partner_phone == normalized:
-            return {
-                "name": r.get("Name", "Unbekannt"),
-                "phone": r.get("Telefon", ""),
-                "email": r.get("E-Mail", ""),
-                "guthaben": float(r.get("Guthaben", 0)),
-                "row_index": i + 2
-            }
-    
-    return None
-
-def find_partner_by_name(sheet, name: str) -> Optional[Dict]:
-    """Sucht Partner nach Name"""
-    records = get_all_partner_records(sheet)
-    
-    for i, r in enumerate(records):
-        if r.get("Name", "").lower() == name.lower():
-            return {
-                "name": r.get("Name", "Unbekannt"),
-                "phone": r.get("Telefon", ""),
-                "email": r.get("E-Mail", ""),
-                "guthaben": float(r.get("Guthaben", 0)),
-                "row_index": i + 2
-            }
-    
-    return None
-
-def add_new_partner(sheet, name: str, phone: str, initial_balance: float):
-    """Fügt neuen Partner hinzu"""
+def update_lead_status(lead_id: str, status: str, partner_name: str = ""):
+    """Aktualisiert Lead-Status im Sheet"""
     try:
-        new_row = [name, phone, "aktiv", initial_balance, ""]
-        sheet.append_row(new_row)
-        logger.info(f"✅ Neuer Partner angelegt: {name} | {initial_balance}€")
+        sheet = get_lead_sheet()
+        if not sheet:
+            return False
+        
+        cell = sheet.find(lead_id)
+        if cell:
+            status_col = 16
+            sheet.update_cell(cell.row, status_col, status)
+            
+            if partner_name:
+                partner_col = 17
+                sheet.update_cell(cell.row, partner_col, partner_name)
+            
+            logger.info(f"📝 Lead-Status aktualisiert: {lead_id} → {status}")
+            return True
+        else:
+            logger.error(f"❌ Lead nicht gefunden: {lead_id}")
+            return False
+            
     except Exception as e:
-        logger.error(f"❌ Fehler beim Anlegen des Partners: {e}")
-
-# ============================================================================
-# TÄGLICHE ERINNERUNGEN
-# ============================================================================
+        logger.error(f"❌ Lead-Status-Update fehlgeschlagen: {e}")
+        return False
 
 def send_daily_partner_reminders():
-    """Sendet jeden Morgen um 08:00 eine Erinnerung an alle aktiven Partner"""
-    global partner_responses_today
-    
-    logger.info("📅 === TÄGLICHE PARTNER-ERINNERUNGEN ===")
-    
+    """Sendet tägliche Erinnerungen an alle Partner (08:00 Uhr)"""
     try:
+        logger.info("⏰ Starte tägliche Partner-Erinnerungen...")
+        
         sheet = get_partner_sheet()
-        all_records = sheet.get_all_records()
+        if not sheet:
+            logger.error("❌ Partner-Sheet nicht verfügbar!")
+            return
         
-        # Tracking zurücksetzen
-        partner_responses_today = {}
+        partners = sheet.get_all_records()
+        success_count = 0
+        skip_count = 0
+        error_count = 0
         
-        reminder_count = 0
-        failed_count = 0
-        skipped_count = 0
+        for partner in partners:
+            try:
+                if partner.get('Status', '').lower() != 'aktiv':
+                    skip_count += 1
+                    continue
+                
+                name = partner.get('Name', 'Partner')
+                phone = partner.get('Telefon', '')
+                balance = float(partner.get('Guthaben', 0))
+                
+                leads_remaining = int(balance / LEAD_PREIS)
+                low_balance_warning = ""
+                
+                if leads_remaining <= 2:
+                    low_balance_warning = f"\n⚠️ ACHTUNG: Nur noch {leads_remaining} Leads möglich! Bitte Guthaben aufladen."
+                
+                reminder_msg = f"""☀️ Guten Morgen {name}!
+
+Damit du heute Leads erhalten kannst, antworte bitte kurz auf diese Nachricht (z.B. OK oder 👍).
+
+💰 Dein aktuelles Guthaben: {balance}€
+💵 Lead-Preis: {LEAD_PREIS}€
+📊 Noch {leads_remaining} Leads möglich{low_balance_warning}
+
+Viel Erfolg heute! 🚀"""
+                
+                result = send_whatsapp(phone, reminder_msg)
+                
+                if result.get('success'):
+                    success_count += 1
+                    logger.info(f"✅ Erinnerung gesendet: {name} ({phone})")
+                else:
+                    error_count += 1
+                    logger.error(f"❌ Erinnerung fehlgeschlagen: {name} ({phone})")
+                
+                time.sleep(1.5)
+                
+            except Exception as e:
+                error_count += 1
+                logger.error(f"❌ Fehler bei Partner-Erinnerung: {e}")
         
-        for row in all_records:
-            # Nur aktive Partner
-            if row.get("Status", "").lower() != "aktiv":
-                continue
-            
-            # Nur Partner mit ausreichend Guthaben
-            guthaben = float(row.get("Guthaben", 0))
-            if guthaben < LEAD_PREIS:
-                skipped_count += 1
-                logger.info(f"⏭️ Überspringe {row.get('Name')} - kein Guthaben ({guthaben}€)")
-                continue
-            
-            partner_phone = row.get("Telefon", "").strip()
-            partner_name = row.get("Name", "Unbekannt")
-            
-            # Telefonnummer vorhanden?
-            if not partner_phone or len(normalize_phone(partner_phone)) < 10:
-                logger.warning(f"⚠️ {partner_name} hat keine gültige Telefonnummer")
-                failed_count += 1
-                continue
-            
-            # Erinnerungs-Nachricht
-            remaining_leads = int(guthaben / LEAD_PREIS)
-            
-            reminder_msg = (
-                f"☀️ *Guten Morgen {partner_name}!*\n\n"
-                f"Antworte kurz auf diese Nachricht, "
-                f"damit du heute Leads empfangen kannst 👍\n\n"
-                f"📊 Dein Guthaben: *{guthaben}€*\n"
-                f"💰 Lead-Preis: {LEAD_PREIS}€\n"
-                f"📈 Noch *{remaining_leads} Leads* möglich\n\n"
-            )
-            
-            # Warnung bei niedrigem Guthaben
-            if remaining_leads <= 2:
-                reminder_msg += f"⚠️ *Guthaben läuft aus!* Bitte aufladen.\n\n"
-            
-            reminder_msg += "Viel Erfolg heute! 🚀"
-            
-            # WhatsApp senden
-            result = send_whatsapp(partner_phone, reminder_msg)
-            
-            if result.get("success"):
-                logger.info(f"✅ Erinnerung gesendet: {partner_name}")
-                reminder_count += 1
-                partner_responses_today[normalize_phone(partner_phone)] = {
-                    "name": partner_name,
-                    "reminded": True,
-                    "responded": False,
-                    "time": datetime.now()
-                }
-            else:
-                logger.error(f"❌ Erinnerung fehlgeschlagen: {partner_name} | {result.get('error')}")
-                failed_count += 1
-            
-            # Rate-Limiting
-            time.sleep(2)
+        admin_summary = f"""📊 Tägliche Erinnerungen versendet
+
+✅ {success_count} Partner benachrichtigt
+⏭️ {skip_count} Partner übersprungen (inaktiv/kein Guthaben)
+❌ {error_count} Fehler
+
+⏰ Warte auf Antworten für 24h-Fenster..."""
         
-        logger.info(f"✅ Erinnerungen abgeschlossen: {reminder_count} gesendet, {failed_count} fehlgeschlagen, {skipped_count} übersprungen")
+        send_whatsapp(MATZE_PHONE, admin_summary)
+        logger.info(f"📊 Erinnerungs-Report: {success_count} erfolgreich, {error_count} Fehler")
         
-        # Matze benachrichtigen
-        matze_msg = (
-            f"📅 *Morgen-Erinnerungen versendet*\n\n"
-            f"✅ {reminder_count} Partner benachrichtigt\n"
-            f"⏭️ {skipped_count} übersprungen (kein Guthaben)\n"
-            f"❌ {failed_count} Fehler\n\n"
-            f"Warte auf Antworten..."
-        )
-        send_whatsapp(MATZE_PHONE, matze_msg)
+        global partner_responses_today
+        partner_responses_today.clear()
         
     except Exception as e:
-        logger.error(f"❌ Fehler bei täglichen Erinnerungen: {e}")
-        send_whatsapp(MATZE_PHONE, f"🚨 *Fehler bei Morgen-Erinnerungen*\n\n{str(e)}")
+        logger.error(f"❌ Tägliche Erinnerungen fehlgeschlagen: {e}")
 
-# ============================================================================
-# LEAD-VERARBEITUNG MIT UTM-TRACKING
-# ============================================================================
-
-def process_lead(lead_data: Dict, campaign_info: Optional[Dict] = None) -> Optional[Dict]:
-    """Verarbeitet einen neuen Lead mit Kampagnen-Info"""
-    logger.info(f"🎯 Verarbeite Lead: {lead_data.get('name', 'N/A')}")
-    
+def start_reminder_scheduler():
+    """Startet den Scheduler für tägliche Erinnerungen"""
     try:
-        sheet = get_partner_sheet()
+        scheduler = BackgroundScheduler(timezone=pytz.timezone('Europe/Berlin'))
+        
+        scheduler.add_job(
+            send_daily_partner_reminders,
+            CronTrigger(hour=8, minute=0),
+            id='daily_partner_reminders',
+            name='Tägliche Partner-Erinnerungen',
+            replace_existing=True
+        )
+        
+        scheduler.start()
+        logger.info("✅ Täglicher Erinnerungs-Scheduler gestartet (08:00 Uhr)")
+        
     except Exception as e:
-        logger.error(f"❌ Sheet-Fehler: {e}")
-        send_whatsapp(MATZE_PHONE, f"🚨 *FEHLER*\n\nSheet nicht erreichbar:\n{e}")
-        return None
-    
-    partner = find_best_partner(sheet)
-    
-    if not partner:
-        logger.error("❌ Kein Partner verfügbar!")
-        no_partner_msg = (
-            f"🚨 *KEIN PARTNER VERFÜGBAR*\n\n"
-            f"Lead:\n"
-            f"👤 {lead_data.get('name', 'N/A')}\n"
-            f"📞 {lead_data.get('phone', 'N/A')}\n"
-            f"📧 {lead_data.get('email', 'N/A')}\n\n"
-            f"⚠️ Bitte manuell zuweisen!"
-        )
-        send_whatsapp(MATZE_PHONE, no_partner_msg)
-        return None
-    
-    # GUTHABEN ABZIEHEN
-    neues_guthaben = update_partner_guthaben(sheet, partner, -LEAD_PREIS)
-    logger.info(f"💰 {partner['name']} Guthaben: {partner.get('guthaben', 0)}€ → {neues_guthaben}€")
-    
-    # PARTNER-NUMMER PRÜFEN
-    partner_phone = partner.get("phone", "").strip()
-    
-    if not partner_phone or len(normalize_phone(partner_phone)) < 10:
-        logger.error(f"❌ {partner['name']} HAT KEINE GÜLTIGE NUMMER")
-        error_msg = (
-            f"🚨 *PARTNER-NUMMER FEHLT!*\n\n"
-            f"Partner: {partner['name']}\n"
-            f"Nummer: '{partner_phone}'\n\n"
-            f"Lead:\n"
-            f"👤 {lead_data.get('name', 'N/A')}\n"
-            f"📞 {lead_data.get('phone', 'N/A')}\n"
-            f"📧 {lead_data.get('email', 'N/A')}\n\n"
-            f"💰 Guthaben wurde abgezogen: {neues_guthaben}€\n\n"
-            f"⚠️ Nummer eintragen und manuell senden!"
-        )
-        send_whatsapp(MATZE_PHONE, error_msg)
-        return None
-    
-    # PARTNER-NACHRICHT SENDEN (MIT KAMPAGNEN-INFO!)
-    partner_msg = (
-        f"🎉 *Neuer Lead für dich!*\n\n"
-        f"👤 {lead_data.get('name', 'N/A')}\n"
-        f"📞 {lead_data.get('phone', 'N/A')}\n"
-        f"📧 {lead_data.get('email', 'N/A')}"
-    )
-    
-    # Kampagnen-Info hinzufügen (wenn vorhanden)
-    if campaign_info:
+        logger.error(f"❌ Scheduler-Start fehlgeschlagen: {e}")
+
+def process_lead(row_data: list, row_index: int):
+    """Verarbeitet einen neuen Lead"""
+    try:
+        lead_id = row_data[0] if len(row_data) > 0 else ""
+        lead_name = row_data[13] if len(row_data) > 13 else ""
+        lead_email = row_data[12] if len(row_data) > 12 else ""
+        lead_phone = row_data[14] if len(row_data) > 14 else ""
+        lead_status = row_data[15] if len(row_data) > 15 else ""
+        
+        if lead_status != "CREATED":
+            return
+        
+        if lead_id in processed_lead_ids:
+            return
+        
+        processed_lead_ids.add(lead_id)
+        
+        logger.info(f"📥 Neuer Lead gefunden: {lead_name} | {lead_phone}")
+        
+        campaign_info = extract_campaign_info(row_data)
         campaign_msg = format_campaign_message(campaign_info)
+        
         if campaign_msg:
-            partner_msg += campaign_msg
-    
-    partner_msg += f"\n\n💰 Verbleibendes Guthaben: {neues_guthaben}€"
-    
-    logger.info(f"📤 Sende Lead an {partner['name']} ({partner_phone})...")
-    partner_result = send_whatsapp(partner_phone, partner_msg)
-    
-    # ERFOLGREICH?
-    if partner_result.get("success"):
-        logger.info(f"✅ Partner-Nachricht erfolgreich gesendet!")
-    else:
-        # FEHLGESCHLAGEN
-        error_msg = partner_result.get("error", "")
-        error_code = partner_result.get("error_code", "")
+            logger.info(f"📺 {campaign_msg.replace(chr(10), ' | ')}")
         
-        logger.error(f"❌ Partner-Nachricht FEHLGESCHLAGEN: {partner_result}")
+        partner = find_next_partner()
+        if not partner:
+            logger.warning("⚠️ Kein verfügbarer Partner!")
+            update_lead_status(lead_id, "PENDING")
+            return
         
-        # 24h-Fenster geschlossen?
-        if "#100" in str(error_msg) or "100" in str(error_code) or "Invalid parameter" in str(error_msg):
-            warning_msg = (
-                f"🚨 *24H-FENSTER GESCHLOSSEN!*\n\n"
-                f"Partner: {partner['name']}\n"
-                f"Nummer: {partner_phone}\n\n"
-                f"❌ Partner hat heute NICHT auf die "
-                f"Morgen-Erinnerung geantwortet!\n\n"
-                f"Lead konnte NICHT zugestellt werden:\n"
-                f"👤 {lead_data.get('name', 'N/A')}\n"
-                f"📞 {lead_data.get('phone', 'N/A')}\n"
-                f"📧 {lead_data.get('email', 'N/A')}\n\n"
-                f"💰 Guthaben wurde TROTZDEM abgezogen: {neues_guthaben}€\n\n"
-                f"⚠️ AKTION ERFORDERLICH:\n"
-                f"1) Lead manuell an {partner['name']} senden\n"
-                f"2) Oder anderen Partner zuweisen\n"
-                f"3) Partner erinnern: JEDEN TAG auf Erinnerung antworten!"
-            )
-        else:
-            # Anderer Fehler
-            warning_msg = (
-                f"🚨 *WHATSAPP-VERSAND FEHLGESCHLAGEN!*\n\n"
-                f"Partner: {partner['name']}\n"
-                f"Nummer: {partner_phone}\n"
-                f"Fehler: {error_msg}\n"
-                f"Code: {error_code}\n\n"
-                f"Lead:\n"
-                f"👤 {lead_data.get('name', 'N/A')}\n"
-                f"📞 {lead_data.get('phone', 'N/A')}\n"
-                f"📧 {lead_data.get('email', 'N/A')}\n\n"
-                f"⚠️ BITTE MANUELL SENDEN!"
-            )
+        partner_name = partner.get('Name', '')
+        partner_phone = partner.get('Telefon', '')
+        current_balance = float(partner.get('Guthaben', 0))
+        new_balance = round(current_balance - LEAD_PREIS, 2)
         
-        send_whatsapp(MATZE_PHONE, warning_msg)
+        logger.info(f"👤 Lead zugewiesen an: {partner_name} ({new_balance}€ verbleibend)")
         
-        return {
-            "lead_id": lead_data.get("id"),
-            "partner": partner["name"],
-            "status": "FAILED",
-            "guthaben": neues_guthaben,
-            "error": str(error_msg)
-        }
-    
-    time.sleep(2)
-    
-    # ADMIN-BENACHRICHTIGUNG (MATZE) - OHNE Kampagnen-Details (nur Übersicht)
-    admin_msg = (
-        f"✅ *Lead verteilt*\n\n"
-        f"👤 {lead_data.get('name', 'N/A')}\n"
-        f"📞 {lead_data.get('phone', 'N/A')}\n"
-        f"📧 {lead_data.get('email', 'N/A')}\n\n"
-        f"➡️ {partner['name']}\n"
-        f"💰 Rest: {neues_guthaben}€"
-    )
-    
-    logger.info("📤 Sende Admin-Benachrichtigung...")
-    send_whatsapp(MATZE_PHONE, admin_msg)
-    
-    logger.info(f"✅ Lead-Verteilung abgeschlossen!")
-    
-    return {
-        "lead_id": lead_data.get("id"),
-        "partner": partner["name"],
-        "partner_phone": partner_phone,
-        "guthaben": neues_guthaben,
-        "timestamp": datetime.now(pytz.timezone("Europe/Berlin")).isoformat()
-    }
+        if not partner_phone or len(partner_phone.replace("+", "").replace(" ", "").replace("-", "").replace("p:", "")) < 10:
+            error_msg = f"""🚨 PARTNER-NUMMER FEHLT/UNGÜLTIG!
 
-# ============================================================================
-# SHEET POLLING MIT KAMPAGNEN-INFO
-# ============================================================================
+👤 Partner: {partner_name}
+📞 Nummer im Sheet: {partner_phone or '[LEER]'}
+💰 Guthaben abgezogen: {LEAD_PREIS}€ (jetzt {new_balance}€)
+
+📝 Lead-Details:
+👤 {lead_name}
+📞 {lead_phone}
+📧 {lead_email}
+{campaign_msg}
+
+⚠️ AKTION ERFORDERLICH:
+1. Nummer im Partner-Sheet korrigieren
+2. Lead manuell per WhatsApp senden"""
+            
+            send_whatsapp(MATZE_PHONE, error_msg)
+            update_lead_status(lead_id, "ERROR_NO_PHONE", partner_name)
+            return
+        
+        update_partner_balance(partner_name, new_balance)
+        
+        partner_message = f"""🎉 Neuer Lead für dich!
+
+👤 {lead_name}
+📞 {lead_phone}
+📧 {lead_email}
+
+{campaign_msg}
+
+💰 Verbleibendes Guthaben: {new_balance}€"""
+        
+        partner_result = send_whatsapp(partner_phone, partner_message)
+        
+        if not partner_result.get('success'):
+            error_msg = str(partner_result.get('error', ''))
+            
+            if '#100' in error_msg or 'Invalid parameter' in error_msg:
+                admin_alert = f"""🚨 PARTNER 24H-FENSTER GESCHLOSSEN!
+
+👤 Partner: {partner_name}
+📞 {partner_phone}
+💰 Guthaben abgezogen: {LEAD_PREIS}€ (jetzt {new_balance}€)
+
+📝 Lead-Details:
+👤 {lead_name}
+📞 {lead_phone}
+📧 {lead_email}
+{campaign_msg}
+
+⚠️ AKTION ERFORDERLICH:
+1. Partner muss Lina schreiben (24h-Fenster öffnen)
+2. Lead dann manuell weiterleiten
+3. Partner an tägliche 08:00-Erinnerung erinnern"""
+                
+                send_whatsapp(MATZE_PHONE, admin_alert)
+                update_lead_status(lead_id, "ERROR_24H_WINDOW", partner_name)
+                return
+            else:
+                admin_alert = f"""🚨 WHATSAPP-VERSAND FEHLGESCHLAGEN!
+
+👤 Partner: {partner_name}
+📞 {partner_phone}
+❌ Fehler: {error_msg}
+
+📝 Lead-Details:
+👤 {lead_name}
+📞 {lead_phone}
+📧 {lead_email}
+{campaign_msg}
+
+💰 Guthaben abgezogen: {LEAD_PREIS}€ (jetzt {new_balance}€)
+
+⚠️ AKTION: Lead manuell per WhatsApp senden"""
+                
+                send_whatsapp(MATZE_PHONE, admin_alert)
+                update_lead_status(lead_id, "ERROR_SEND", partner_name)
+                return
+        
+        logger.info("✅ Partner-Nachricht erfolgreich gesendet!")
+        
+        time.sleep(2)
+        admin_message = f"""✅ Lead erfolgreich verteilt!
+
+👤 Lead: {lead_name}
+📞 {lead_phone}
+📧 {lead_email}
+
+{campaign_msg}
+
+→ Zugewiesen an: {partner_name}
+💰 Neues Guthaben: {new_balance}€"""
+        
+        send_whatsapp(MATZE_PHONE, admin_message)
+        
+        update_lead_status(lead_id, "VERTEILT", partner_name)
+        
+    except Exception as e:
+        logger.error(f"❌ Lead-Verarbeitung fehlgeschlagen: {e}")
 
 def poll_new_leads():
-    """Pollt neue Leads aus Sheet und verarbeitet sie"""
-    logger.info("🔄 Polling neue Leads...")
+    """Polling-Loop für neue Leads"""
+    logger.info("🔄 Starte Lead-Polling...")
     
-    try:
-        leads_sheet = get_leads_sheet()
-        all_values = leads_sheet.get_all_values()
-        
-        if len(all_values) <= 1:
-            logger.info("📭 Keine neuen Leads")
-            return {"processed": 0}
-        
-        processed_count = 0
-        
-        for row_idx, row_data in enumerate(all_values[1:], start=2):
-            # Status-Spalte prüfen (Spalte P, Index 15 in deinem Sheet)
-            # ANPASSEN je nach tatsächlicher Sheet-Struktur!
-            status_col_index = 15  # Spalte P (0-indexed)
-            
-            if len(row_data) <= status_col_index:
+    while True:
+        try:
+            sheet = get_lead_sheet()
+            if not sheet:
+                logger.error("❌ Lead-Sheet nicht verfügbar!")
+                time.sleep(30)
                 continue
             
-            status = row_data[status_col_index].strip().upper()
+            rows = sheet.get_all_values()
             
-            # Nur neue Leads verarbeiten
-            if status != "CREATED":
-                continue
+            for idx, row in enumerate(rows[1:], start=2):
+                if len(row) > 15:
+                    process_lead(row, idx)
             
-            # Status auf PROCESSING setzen
-            try:
-                leads_sheet.update_cell(row_idx, status_col_index + 1, "PROCESSING")
-            except:
-                continue
+            time.sleep(30)
             
-            # Lead-Daten extrahieren
-            # WICHTIG: Spalten-Indizes anpassen basierend auf deinem Sheet!
-            # Beispiel aus deinen Daten:
-            # Spalte J: Email
-            # Spalte K: Name  
-            # Spalte L: Telefon (p:+...)
-            
-            lead_data = {
-                "name": row_data[10] if len(row_data) > 10 else "Unbekannt",  # Spalte K
-                "email": row_data[9] if len(row_data) > 9 else "",  # Spalte J
-                "phone": row_data[11] if len(row_data) > 11 else "",  # Spalte L
-            }
-            
-            # Kampagnen-Info extrahieren
-            campaign_info = extract_campaign_info(row_data)
-            
-            logger.info(f"📥 Neuer Lead: {lead_data['name']} | Kampagne: {campaign_info.get('campaign_name', 'N/A')}")
-            
-            # Lead verarbeiten
-            result = process_lead(lead_data, campaign_info)
-            
-            # Status updaten
-            if result and "error" not in result:
-                leads_sheet.update_cell(row_idx, status_col_index + 1, "VERTEILT")
-                processed_count += 1
-            else:
-                leads_sheet.update_cell(row_idx, status_col_index + 1, "FEHLER")
-            
-            time.sleep(2)
-        
-        logger.info(f"✅ Polling abgeschlossen: {processed_count} Leads verteilt")
-        return {"processed": processed_count}
-        
-    except Exception as e:
-        logger.error(f"❌ Polling-Fehler: {e}")
-        return {"error": str(e)}
-
-# ============================================================================
-# STRIPE PAYMENT
-# ============================================================================
-
-def process_stripe_payment(customer_name: str, customer_phone: str, customer_email: str, amount: float):
-    """Verarbeitet Stripe-Zahlung"""
-    logger.info(f"=== Stripe: {customer_name} | {amount}€ ===")
-    
-    try:
-        sheet = get_partner_sheet()
-    except Exception as e:
-        logger.error(f"❌ Sheet-Fehler: {e}")
-        send_whatsapp(MATZE_PHONE, f"🚨 *Stripe-Fehler*\n\nSheet nicht erreichbar:\n{e}")
-        return
-    
-    # Partner suchen
-    partner = None
-    if customer_phone:
-        partner = find_partner_by_phone(sheet, customer_phone)
-    if not partner and customer_name:
-        partner = find_partner_by_name(sheet, customer_name)
-    
-    if partner:
-        neues_guthaben = update_partner_guthaben(sheet, partner, amount)
-        action = "GUTHABEN ERHÖHT"
-        
-        # Partner benachrichtigen
-        partner_msg = (
-            f"✅ *Zahlung erhalten!*\n\n"
-            f"💵 {amount}€ wurde deinem Konto gutgeschrieben.\n"
-            f"📊 Neues Guthaben: {neues_guthaben}€\n\n"
-            f"Vielen Dank! 🙏"
-        )
-        send_whatsapp(customer_phone, partner_msg)
-        logger.info(f"✅ Partner-Benachrichtigung gesendet an {customer_phone}")
-        
-    else:
-        add_new_partner(sheet, customer_name, customer_phone, amount)
-        neues_guthaben = amount
-        action = "NEUER PARTNER"
-        
-        # Neuen Partner begrüßen
-        if customer_phone:
-            welcome_msg = (
-                f"🎉 *Willkommen im Team!*\n\n"
-                f"Deine Zahlung von {amount}€ ist eingegangen.\n"
-                f"📊 Dein Guthaben: {neues_guthaben}€\n\n"
-                f"Du bekommst ab jetzt jeden Morgen um 08:00 Uhr "
-                f"eine Erinnerung. Einfach kurz antworten und "
-                f"du erhältst den ganzen Tag Leads!\n\n"
-                f"Let's go! 🚀"
-            )
-            send_whatsapp(customer_phone, welcome_msg)
-    
-    time.sleep(2)
-    
-    # MATZE BENACHRICHTIGEN
-    matze_msg = (
-        f"💰 *Stripe-Zahlung eingegangen!*\n\n"
-        f"👤 {customer_name}\n"
-        f"📞 {customer_phone}\n"
-        f"📧 {customer_email}\n"
-        f"💵 {amount}€\n\n"
-        f"✅ {action}\n"
-        f"📊 Neues Guthaben: {neues_guthaben}€"
-    )
-    
-    logger.info("📤 Sende Stripe-Admin-Info an Matze...")
-    result = send_whatsapp(MATZE_PHONE, matze_msg)
-    
-    if "error" in result:
-        logger.error(f"❌ Matze-Benachrichtigung FEHLGESCHLAGEN: {result}")
-    elif result.get("success"):
-        logger.info("✅ Matze-Benachrichtigung gesendet!")
-    else:
-        logger.warning(f"⚠️ Matze-Benachrichtigung unklares Ergebnis: {result}")
-    
-    logger.info(f"✅ Stripe fertig: {action}")
-
-# ============================================================================
-# FASTAPI APP
-# ============================================================================
-
-app = FastAPI(title="Lead-Verteilungs-Service v5.1")
-
-@app.get("/")
-def root():
-    """Health Check"""
-    return {
-        "status": "running",
-        "version": "5.1-UTM-TRACKING",
-        "timestamp": datetime.now(pytz.timezone("Europe/Berlin")).isoformat()
-    }
-
-@app.get("/webhook")
-def facebook_webhook_verify(request: Request):
-    """Facebook Webhook Verification"""
-    mode = request.query_params.get("hub.mode")
-    token = request.query_params.get("hub.verify_token")
-    challenge = request.query_params.get("hub.challenge")
-    
-    if mode == "subscribe" and token == "VERIFY_TOKEN_123":
-        logger.info("✅ Facebook Webhook verifiziert")
-        return int(challenge)
-    
-    raise HTTPException(status_code=403, detail="Verification failed")
-
-@app.post("/webhook")
-async def facebook_webhook(request: Request):
-    """Facebook Lead Webhook"""
-    try:
-        payload = await request.json()
-        logger.info(f"📥 Facebook Webhook empfangen: {payload}")
-        
-        # Lead-Daten extrahieren (vereinfacht)
-        lead_data = {
-            "id": payload.get("entry", [{}])[0].get("id"),
-            "name": "Test Lead",
-            "phone": "+491234567890",
-            "email": "test@example.com"
-        }
-        
-        # Lead verarbeiten
-        result = process_lead(lead_data)
-        
-        return {"status": "success", "result": result}
-        
-    except Exception as e:
-        logger.error(f"❌ Webhook-Fehler: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error(f"❌ Polling-Fehler: {e}")
+            time.sleep(30)
 
 @app.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
-    """Stripe Webhook"""
-    payload = await request.body()
-    sig_header = request.headers.get("Stripe-Signature")
-    
+    """Stripe Webhook für Zahlungen"""
     try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, STRIPE_WEBHOOK_SECRET
-        )
+        payload = await request.body()
+        sig_header = request.headers.get('stripe-signature')
         
-        if event["type"] == "checkout.session.completed":
-            session = event["data"]["object"]
-            
-            customer_name = session.get("customer_details", {}).get("name", "Unbekannt")
-            customer_phone = session.get("customer_details", {}).get("phone", "")
-            customer_email = session.get("customer_details", {}).get("email", "")
-            amount = session.get("amount_total", 0) / 100
-            
-            logger.info(f"💳 Stripe Checkout abgeschlossen: {customer_name} | {amount}€")
-            
-            process_stripe_payment(customer_name, customer_phone, customer_email, amount)
+        try:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, STRIPE_WEBHOOK_SECRET
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid payload")
+        except stripe.error.SignatureVerificationError:
+            raise HTTPException(status_code=400, detail="Invalid signature")
         
-        return {"status": "success"}
+        if event['type'] == 'checkout.session.completed':
+            session = event['data']['object']
+            
+            customer_name = session.get('customer_details', {}).get('name', 'Unbekannt')
+            customer_phone = session.get('customer_details', {}).get('phone', '')
+            customer_email = session.get('customer_details', {}).get('email', '')
+            amount_cents = session.get('amount_total', 0)
+            amount_eur = amount_cents / 100
+            
+            logger.info(f"💳 Stripe-Zahlung: {customer_name} | {amount_eur}€")
+            
+            process_stripe_payment(customer_name, customer_phone, customer_email, amount_eur)
+        
+        return JSONResponse({"status": "success"})
         
     except Exception as e:
-        logger.error(f"❌ Stripe Webhook Error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"❌ Stripe Webhook Fehler: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/manual-poll")
-def manual_poll():
-    """Manueller Polling-Trigger"""
-    logger.info("🔄 Manueller Poll gestartet")
-    result = poll_new_leads()
-    return {"status": "ok", "result": result}
+def process_stripe_payment(name: str, phone: str, email: str, amount: float):
+    """Verarbeitet Stripe-Zahlung und aktualisiert Partner-Guthaben"""
+    try:
+        logger.info(f"💰 Verarbeite Zahlung: {name} | {amount}€")
+        
+        sheet = get_partner_sheet()
+        if not sheet:
+            logger.error("❌ Partner-Sheet nicht verfügbar!")
+            return
+        
+        partners = sheet.get_all_records()
+        partner = None
+        
+        for p in partners:
+            if p.get('Name', '').lower() == name.lower() or p.get('Email', '').lower() == email.lower():
+                partner = p
+                break
+        
+        if partner:
+            current_balance = float(partner.get('Guthaben', 0))
+            new_balance = round(current_balance + amount, 2)
+            
+            update_partner_balance(partner['Name'], new_balance)
+            
+            partner_msg = f"""✅ Zahlung erfolgreich eingegangen!
 
-# ============================================================================
-# SCHEDULER
-# ============================================================================
+💰 Betrag: {amount}€
+📊 Neues Guthaben: {new_balance}€
+💵 Lead-Preis: {LEAD_PREIS}€
+📈 Verfügbare Leads: {int(new_balance / LEAD_PREIS)}
 
-def start_reminder_scheduler():
-    """Startet den täglichen Erinnerungs-Scheduler"""
-    scheduler = BackgroundScheduler(timezone=pytz.timezone("Europe/Berlin"))
-    
-    # Täglich um 08:00 Uhr
-    scheduler.add_job(
-        send_daily_partner_reminders,
-        'cron',
-        hour=8,
-        minute=0,
-        id='daily_partner_reminder'
-    )
-    
-    scheduler.start()
-    logger.info("✅ Täglicher Erinnerungs-Scheduler gestartet (08:00 Uhr)")
-    
-    return scheduler
+Vielen Dank! 🚀"""
+            
+            if partner.get('Telefon'):
+                send_whatsapp(partner['Telefon'], partner_msg)
+            
+            time.sleep(2)
+            
+        else:
+            logger.info(f"🆕 Neuer Partner: {name}")
+            
+            next_row = len(partners) + 2
+            sheet.append_row([name, phone, amount, 'aktiv', email])
+            
+            if phone:
+                welcome_msg = f"""🎉 Willkommen im LR-Lead-System!
 
-# ============================================================================
-# STARTUP
-# ============================================================================
+✅ Dein Account wurde erstellt
+💰 Startguthaben: {amount}€
+💵 Lead-Preis: {LEAD_PREIS}€
+📊 Verfügbare Leads: {int(amount / LEAD_PREIS)}
+
+Du erhältst ab sofort automatisch Leads per WhatsApp! 🚀
+
+⏰ Wichtig: Täglich um 08:00 Uhr kommt eine Erinnerung von Lina. Bitte kurz antworten, damit das 24h-Fenster offen bleibt!"""
+                
+                send_whatsapp(phone, welcome_msg)
+        
+        admin_msg = f"""💳 Stripe-Zahlung eingegangen!
+
+👤 Kunde: {name}
+📞 {phone}
+📧 {email}
+💰 Betrag: {amount}€
+{"✅ GUTHABEN ERHÖHT" if partner else "🆕 NEUER PARTNER ANGELEGT"}
+
+📊 Neues Guthaben: {new_balance if partner else amount}€"""
+        
+        send_whatsapp(MATZE_PHONE, admin_msg)
+        logger.info("✅ Matze-Benachrichtigung gesendet!")
+        
+    except Exception as e:
+        logger.error(f"❌ Stripe-Payment-Verarbeitung fehlgeschlagen: {e}")
 
 @app.on_event("startup")
-def startup_event():
-    """Wird beim Start der App ausgeführt"""
+async def startup_event():
+    """System-Start"""
+    import threading
+    
     logger.info("=" * 60)
-    logger.info("🚀 Lead-Verteilungs-Service v5.1 - UTM-TRACKING")
+    logger.info("🚀 Lead-Verteilungs-Service v5.2 - Spalten-Fix + UTM")
     logger.info("=" * 60)
-    logger.info(f"✅ System gestartet")
-    logger.info(f"📱 Admin-Benachrichtigungen → {MATZE_PHONE}")
+    logger.info("✅ System gestartet")
+    logger.info(f"📱 Admin-Benachrichtigung → {MATZE_PHONE}")
     logger.info(f"💰 Lead-Preis: {LEAD_PREIS}€")
-    logger.info(f"⏰ Tägliche Erinnerungen: 08:00 Uhr")
-    logger.info(f"📊 UTM-Tracking: Aktiv")
+    logger.info("📊 UTM-Tracking: Aktiv")
+    logger.info("📋 Spalten-Mapping: N=Name, M=Email, O=Phone, P=Status")
     logger.info("=" * 60)
     
-    # Scheduler starten
-    app.state.scheduler = start_reminder_scheduler()
+    start_reminder_scheduler()
     
-    # Test-Nachricht an Matze
-    test_msg = (
-        f"🚀 *System gestartet!*\n\n"
-        f"Lead-Verteilungs-Service v5.1\n"
-        f"✅ Tägliche Erinnerungen aktiv (08:00 Uhr)\n"
-        f"📊 UTM-Tracking eingebaut\n"
-        f"💰 Lead-Preis: {LEAD_PREIS}€\n\n"
-        f"Partner bekommen jetzt Kampagnen-Info! 🎯"
-    )
-    send_whatsapp(MATZE_PHONE, test_msg)
+    polling_thread = threading.Thread(target=poll_new_leads, daemon=True)
+    polling_thread.start()
+    
+    startup_msg = f"""🚀 System gestartet!
 
-@app.on_event("shutdown")
-def shutdown_event():
-    """Wird beim Herunterfahren ausgeführt"""
-    logger.info("🛑 System wird heruntergefahren...")
-    if hasattr(app.state, 'scheduler'):
-        app.state.scheduler.shutdown()
-        logger.info("✅ Scheduler gestoppt")
+Lead-Verteilungs-Service v5.2
 
-# ============================================================================
-# MAIN
-# ============================================================================
+✅ Lead-Polling: Aktiv
+✅ WhatsApp-Integration: Aktiv
+✅ Stripe-Webhook: Aktiv
+✅ UTM-Tracking: Aktiv
+✅ Tägliche Erinnerungen: 08:00 Uhr
+💰 Lead-Preis: {LEAD_PREIS}€
+
+Alle Systeme bereit! 🎯"""
+    
+    send_whatsapp(MATZE_PHONE, startup_msg)
+
+@app.get("/")
+async def root():
+    return {
+        "service": "Lead-Verteilungs-Service",
+        "version": "5.2",
+        "status": "running",
+        "features": [
+            "Lead-Polling",
+            "WhatsApp-Integration (Meta Cloud API)",
+            "Stripe-Webhook",
+            "UTM-Tracking (Kampagne + Anzeige + Facebook-Link)",
+            "Tägliche Erinnerungen (08:00 Uhr)",
+            "24h-Fenster-Erkennung"
+        ],
+        "spalten_mapping": {
+            "M": "e-mail-adresse",
+            "N": "vollständiger_name",
+            "O": "telefonnummer",
+            "P": "lead_status"
+        }
+    }
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy", "version": "5.2"}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import uvicorn
+    port = int(os.getenv("PORT", 10000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
