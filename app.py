@@ -1,9 +1,13 @@
 """
-Lead-Verteilungs-Service v5.2 - FINAL FIX
-==========================================
-- oauth2client → google-auth (modern)
-- Alle Dependencies korrekt
-- Environment Variables
+Lead-Verteilungs-Service v5.3 - PRODUCTION READY
+=================================================
+✅ Google Sheets (google-auth statt oauth2client)
+✅ WhatsApp Meta Cloud API
+✅ Stripe Integration
+✅ Tägliche Erinnerungen 08:00 Uhr
+✅ 24h-Fenster-Erkennung
+✅ UTM-Tracking (Kampagne + Anzeige + Facebook-Link)
+✅ Spalten-Mapping: M=Email, N=Name, O=Phone, P=Status
 """
 
 from fastapi import FastAPI, Request, HTTPException
@@ -21,29 +25,51 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
 
+# ===========================
+# LOGGING KONFIGURATION
+# ===========================
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
+# ===========================
+# META WHATSAPP API CONFIG
+# ===========================
 META_TOKEN = os.getenv("META_TOKEN")
 META_PHONE_ID = os.getenv("META_PHONE_ID", "623007617563961")
 META_URL = f"https://graph.facebook.com/v22.0/{META_PHONE_ID}/messages"
 MATZE_PHONE = os.getenv("MATZE_PHONE", "491715060008")
 
+# ===========================
+# STRIPE KONFIGURATION
+# ===========================
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
+# ===========================
+# GOOGLE SHEETS KONFIGURATION
+# ===========================
 SCOPES = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 SHEET_ID = os.getenv("SHEET_ID", "1wVevVuP1sm_2g7eg37rCYSVSoF_T6rjNj89Qkoh9DIY")
 CREDENTIALS_JSON = json.loads(os.getenv("GOOGLE_CREDENTIALS_JSON", "{}"))
 
+# ===========================
+# GLOBALE VARIABLEN
+# ===========================
 LEAD_PREIS = 5.0
 processed_lead_ids = set()
 partner_responses_today = set()
 
-app = FastAPI(title="Lead-Verteilungs-Service v5.2")
+# ===========================
+# FASTAPI INIT
+# ===========================
+app = FastAPI(title="Lead-Verteilungs-Service v5.3")
+
+# ===========================
+# HELPER FUNCTIONS
+# ===========================
 
 def get_google_sheets_client():
     """Verbindung zu Google Sheets"""
@@ -76,7 +102,7 @@ def get_lead_sheet():
         client = get_google_sheets_client()
         if not client:
             return None
-        sheet = client.open_by_key(SHEET_ID).worksheet("Leads")
+        sheet = client.open_by_key(SHEET_ID).worksheet("Lead Ads Tabelle")
         return sheet
     except Exception as e:
         logger.error(f"❌ Lead-Sheet konnte nicht geladen werden: {e}")
@@ -591,7 +617,7 @@ async def startup_event():
     import threading
     
     logger.info("=" * 60)
-    logger.info("🚀 Lead-Verteilungs-Service v5.2 - FINAL")
+    logger.info("🚀 Lead-Verteilungs-Service v5.3 - PRODUCTION")
     logger.info("=" * 60)
     logger.info("✅ System gestartet")
     logger.info(f"📱 Admin-Benachrichtigung → {MATZE_PHONE}")
@@ -607,7 +633,7 @@ async def startup_event():
     
     startup_msg = f"""🚀 System gestartet!
 
-Lead-Verteilungs-Service v5.2
+Lead-Verteilungs-Service v5.3
 
 ✅ Lead-Polling: Aktiv
 ✅ WhatsApp-Integration: Aktiv
@@ -624,13 +650,21 @@ Alle Systeme bereit! 🎯"""
 async def root():
     return {
         "service": "Lead-Verteilungs-Service",
-        "version": "5.2-FINAL",
-        "status": "running"
+        "version": "5.3",
+        "status": "running",
+        "features": [
+            "Lead-Polling",
+            "WhatsApp-Integration (Meta Cloud API)",
+            "Stripe-Webhook",
+            "UTM-Tracking (Kampagne + Anzeige + Facebook-Link)",
+            "Tägliche Erinnerungen (08:00 Uhr)",
+            "24h-Fenster-Erkennung"
+        ]
     }
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "version": "5.2"}
+    return {"status": "healthy", "version": "5.3"}
 
 if __name__ == "__main__":
     import uvicorn
