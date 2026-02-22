@@ -1,9 +1,7 @@
-fastapi==0.115.0
-uvicorn[standard]==0.32.0
-gspread==6.1.4
-google-auth==2.35.0
-google-auth-oauthlib==1.2.1
-requests==2.32.3
-stripe==11.1.1
-APScheduler==3.10.4
-pytz==2024.1
+fastapi
+uvicorn
+gspread
+requests
+stripe
+APScheduler
+pytz
