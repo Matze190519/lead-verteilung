@@ -1,10 +1,11 @@
 """
-Lead-Verteilungs-Service v4.3 FINAL
-====================================
+Lead-Verteilungs-Service v4.3 FINAL + STRIPE-FIX
+=================================================
 - Meta Cloud API (Lina's Account zum SENDEN)
 - Alle Benachrichtigungen an Matze (491715060008)
 - Partner bekommen Leads von ihrer Partnernummer
 - Matze sieht ALLES (Lead-Verteilungen, Stripe, Fehler)
+- Stripe-Benachrichtigungen an Matze hinzugefügt (FIX!)
 - Keine WhAPI (Meta-konform!)
 
 Architektur:
@@ -68,7 +69,7 @@ poll_lock = threading.Lock()
 # ─── FastAPI App ─────────────────────────────
 app = FastAPI(
     title="Lead-Verteilungs-Service",
-    version="4.3-FINAL",
+    version="4.3-FINAL-STRIPE-FIX",
 )
 
 logger.info(f"✅ System gestartet | Admin-Benachrichtigungen → {MATZE_PHONE}")
@@ -346,13 +347,17 @@ def process_lead(lead_data):
 # ─── Stripe Zahlung verarbeiten ──────────────
 def process_stripe_payment(customer_name, customer_phone, customer_email, amount):
     logger.info(f"=== Stripe: {customer_name} | {amount}€ ===")
+    
+    # DEBUG: Prüfe MATZE_PHONE
+    logger.info(f"🔍 DEBUG: MATZE_PHONE = '{MATZE_PHONE}' | Länge={len(MATZE_PHONE)}")
+    
     try:
         sheet = get_partner_sheet()
     except Exception as e:
         logger.error(f"Sheet-Fehler: {e}")
         return
 
-    # Partner suchen
+    # Partner suchen (Telefon ODER Name)
     partner = None
     if customer_phone:
         partner = find_partner_by_phone(sheet, customer_phone)
@@ -362,20 +367,52 @@ def process_stripe_payment(customer_name, customer_phone, customer_email, amount
     if partner:
         neues_guthaben = update_partner_guthaben(sheet, partner, amount)
         action = "GUTHABEN ERHÖHT"
+        partner_name = partner["name"]
     else:
+        # Neuer Partner
         add_new_partner(sheet, customer_name, customer_phone, amount)
         neues_guthaben = amount
         action = "NEUER PARTNER"
+        partner_name = customer_name
 
-    # MATZE benachrichtigen
-    matze_msg = (f"💰 *Stripe-Zahlung*\n\n"
-                f"👤 {customer_name}\n"
-                f"📞 {customer_phone}\n"
-                f"📧 {customer_email}\n"
-                f"💵 {amount}€\n"
-                f"✅ {action}\n"
-                f"📊 Guthaben: {neues_guthaben}€")
-    send_whatsapp(MATZE_PHONE, matze_msg)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 1️⃣ PARTNER BENACHRICHTIGEN (optional - wenn Tel vorhanden)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    if customer_phone and normalize_phone(customer_phone):
+        partner_msg = (
+            f"✅ *Zahlung erhalten!*\n\n"
+            f"💰 {amount}€ aufgeladen\n"
+            f"📊 Neues Guthaben: {neues_guthaben}€\n\n"
+            f"Du bist aktiv und erhältst Leads!"
+        )
+        partner_result = send_whatsapp(normalize_phone(customer_phone), partner_msg)
+        if "error" not in partner_result:
+            logger.info(f"✅ Partner-Benachrichtigung gesendet an {customer_phone}")
+    
+    time.sleep(2)  # Rate-Limit-Schutz
+    
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 2️⃣ MATZE BENACHRICHTIGEN (ADMIN-INFO - WIE BEI LEADS!)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    matze_msg = (
+        f"💰 *Stripe-Zahlung eingegangen!*\n\n"
+        f"👤 {customer_name}\n"
+        f"📞 {customer_phone}\n"
+        f"📧 {customer_email}\n"
+        f"💵 {amount}€\n\n"
+        f"✅ {action}\n"
+        f"📊 Neues Guthaben: {neues_guthaben}€\n"
+        f"👤 Partner: {partner_name}"
+    )
+    
+    logger.info("📤 Sende Stripe-Admin-Info an Matze...")
+    matze_result = send_whatsapp(MATZE_PHONE, matze_msg)
+    
+    if "error" in matze_result:
+        logger.error(f"❌ Matze-Benachrichtigung fehlgeschlagen: {matze_result}")
+    else:
+        logger.info(f"✅ Matze-Benachrichtigung gesendet!")
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
     logger.info(f"Stripe fertig: {action}")
 
@@ -486,13 +523,13 @@ def polling_loop():
 # ─── API Endpoints ───────────────────────────
 @app.on_event("startup")
 def startup():
-    logger.info("🚀 Lead-Verteilung v4.3 FINAL gestartet")
+    logger.info("🚀 Lead-Verteilung v4.3 FINAL + STRIPE-FIX gestartet")
     threading.Thread(target=polling_loop, daemon=True).start()
 
 
 @app.get("/")
 def root():
-    return {"status": "ok", "version": "4.3-FINAL", "admin": MATZE_PHONE}
+    return {"status": "ok", "version": "4.3-FINAL-STRIPE-FIX", "admin": MATZE_PHONE}
 
 
 @app.get("/webhook/facebook")
@@ -510,7 +547,7 @@ async def fb_webhook(request: Request, background_tasks: BackgroundTasks):
     except:
         return {"error": "Invalid JSON"}
     
-    # Lead-Daten extrahieren (deine Logik)
+    # Lead-Daten extrahieren (vereinfacht - du musst deine Logik hier einfügen)
     lead_data = {"name": "Test", "phone": "491234567890", "email": "test@test.de"}
     
     background_tasks.add_task(process_lead, lead_data)
