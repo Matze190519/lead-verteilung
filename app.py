@@ -275,14 +275,33 @@ def get_funnel_info(ad_name: str, campaign_name: str, adset_name: str = "") -> d
     Ordnet einen Interessenten einem Funnel zu basierend auf ad_name, campaign_name, adset_name.
     Gibt dict zurück mit 'label', 'emoji', 'beschreibung', 'tipps'.
     """
-    search_text = f"{ad_name} {campaign_name} {adset_name}".lower()
+    ad_lower = ad_name.lower().strip() if ad_name else ""
+    camp_lower = campaign_name.lower().strip() if campaign_name else ""
+    adset_lower = adset_name.lower().strip() if adset_name else ""
 
-    for funnel in FUNNEL_MAPPING:
-        for kw in funnel["keywords"]:
-            if kw in search_text:
-                return funnel
+    # SCHRITT 1: Zuerst nur ad_name prüfen (Anzeigenname ist am genauesten)
+    # Auto Reels: ad_name enthält "auto", "reel", "firmenwagen", "porsche", "bmw", "amg"
+    auto_keywords = ["auto", "reel", "firmenwagen", "porsche", "bmw", "amg"]
+    if any(kw in ad_lower for kw in auto_keywords):
+        return FUNNEL_MAPPING[1]  # Auto Reels
 
-    # Fallback: Kampagnenname oder Anzeigenname als Label
+    # Bild-Kampagne: ad_name enthält "wage", "clean", "bonus", "3 fragen", "schritt"
+    bild_keywords = ["wage", "clean", "bonus", "3 fragen", "schritt",
+                     "nebenverdienst", "hauptverdienst", "online"]
+    if any(kw in ad_lower for kw in bild_keywords):
+        return FUNNEL_MAPPING[0]  # Bild-Kampagne
+
+    # SCHRITT 2: Kampagne "Matze NEU" = immer Bild-Kampagne
+    if "matze neu" in camp_lower:
+        return FUNNEL_MAPPING[0]  # Bild-Kampagne
+
+    # SCHRITT 3: Retargeting-Kampagne OHNE Auto-Keywords im ad_name
+    # = Bild-Kampagne (weil Retargeting-Kampagne BEIDES enthält)
+    if "retargeting" in camp_lower or "optimiert" in camp_lower or "lr business" in camp_lower:
+        # Wenn ad_name keine Auto-Keywords hat, ist es eine Bildanzeige
+        return FUNNEL_MAPPING[0]  # Bild-Kampagne (Default für Retargeting)
+
+    # SCHRITT 4: Fallback
     fallback_name = campaign_name or ad_name or "Werbeanzeige"
     return {
         "label": fallback_name,
