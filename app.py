@@ -230,45 +230,42 @@ def smart_extract_lead_fields(field1: str, field2: str, field3: str) -> dict:
 FUNNEL_MAPPING = [
     {
         # Kampagne: Matze NEU 05.10.2025
-        # Bildanzeigen: "3 Fragen an dich", "Wie lange noch für andere arbeiten?",
-        # "Was wäre, wenn dein Nebenverdienst dein Hauptverdienst wird?",
-        # "Bereit für den ersten Schritt?"
+        # Verschiedene Bildanzeigen: Online Geld verdienen, garantierter Bonus,
+        # Teamwork, 3 Fragen, Nebenverdienst wird Hauptverdienst
         # Formular: 500-3.000€/Monat neben Hauptjob, flexible Zeiten, von überall
         "keywords": ["wage", "clean", "online", "garantie", "bonus",
                      "matze neu", "von zu hause", "nebeneinkommen",
                      "3 fragen", "nebenverdienst", "hauptverdienst"],
-        "label": "📸 Bild-Kampagne (Nebenverdienst / Online-Business)",
+        "label": "📸 Bild-Kampagne (Online Geld verdienen)",
         "emoji": "📸",
         "beschreibung": (
-            "Der Interessent hat eine Bildanzeige gesehen mit den 3 Fragen:\n"
-            "1. Wie lange noch für andere arbeiten?\n"
-            "2. Was wäre, wenn dein Nebenverdienst dein Hauptverdienst wird?\n"
-            "3. Bereit für den ersten Schritt?\n"
-            "Er sucht einen Nebenverdienst von 500-3.000€/Monat."
+            "Bildanzeige: Online Geld verdienen, garantierter Bonus, Teamwork.\n"
+            "Der Interessent sucht einen Nebenverdienst von 500-3.000€/Monat."
         ),
         "tipps": [
-            "💡 Frag ihn: Wie lange willst du noch für andere arbeiten?",
+            "💡 Frag, was ihn am meisten angesprochen hat",
             "💡 Frag, was er sich von einem Nebenverdienst erhofft",
             "💡 Erkläre kurz, wie er mit LR 500-3.000€ nebenbei verdienen kann",
         ],
     },
     {
         # Kampagne: LR Business Lead Kampagne - OPTIMIERT mit Retargeting
-        # LR Auto Reels (Videos mit LR Firmenwagen, Lifestyle)
-        # Gleiches Formular: 500-3.000€/Monat, flexible Zeiten
+        # LR Auto Reels: Videos mit Autos auf denen LR drauf steht
+        # Autos 70-80% finanziert, ohne Anzahlung, ohne Schlussrate,
+        # ab der ersten Stufe bestellbar, viele machen das am ersten Tag
         "keywords": ["lr business", "retargeting", "optimiert", "lead kam",
                      "auto", "reel", "firmenwagen", "porsche", "bmw", "amg"],
-        "label": "🚗 LR Auto Reels (Lifestyle & Firmenwagen)",
+        "label": "🚗 LR Auto Reels (Firmenwagen-Programm)",
         "emoji": "🚗",
         "beschreibung": (
-            "Der Interessent hat ein LR Auto-Reel gesehen mit Firmenwagen.\n"
-            "Er sucht einen Nebenverdienst von 500-3.000€/Monat.\n"
-            "Das Auto-Programm hat sein Interesse geweckt."
+            "Video-Reel: Autos mit LR-Branding.\n"
+            "Der Interessent hat gesehen, dass LR Autos zu 70-80% finanziert –\n"
+            "ohne Anzahlung, ohne Schlussrate, ab der ersten Stufe bestellbar."
         ),
         "tipps": [
             "💡 Frag, welches Auto ihm im Reel am besten gefallen hat",
-            "💡 Erkläre das LR Autokonzept: Firmenwagen OHNE Anzahlung",
-            "💡 Frag, ob er sich vorstellen kann, so ein Auto über LR zu fahren",
+            "💡 Erkläre: 70-80% finanziert, keine Anzahlung, keine Schlussrate",
+            "💡 Viele bestellen ihr Auto schon am ersten Tag – erwähne das!",
         ],
     },
 ]
