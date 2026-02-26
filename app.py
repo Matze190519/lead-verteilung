@@ -1,37 +1,21 @@
 # ============================================================
-# Lead-Verteilungs-Service v6.3 FINAL
+# Lead-Verteilungs-Service v6.4 FINAL
 # ============================================================
-# Basis: v4.9 (stabil, verifiziert) + alle Optimierungen
+# Basis: v4.9 (stabil) + v6.3 + alle Fixes
 # ============================================================
-# ✅ Partner_Konto: A=Name B=Telefon C=Guthaben_Euro
-#                  D=Leads_Geliefert E=Letzter_Lead_Am
-#                  F=Status G=Zeitfenster H=Email
-# ✅ Tabellenblatt1: Index 12=Email 13=Name 14=Phone 15=Status
-# ✅ Leads_Log: A=Zeitstempel B=Lead_Name C=Lead_Phone
-#              D=Lead_Email E=Partner_Name F=Partner_Telefon
-#              G=Guthaben_Nach H=WhatsApp I=WhatsApp_Lead
-#              J=Status K=Kampagne L=Anzeige
-# ✅ Google Auth: Credentials.from_service_account_info + gspread.authorize
-# ✅ Scopes: spreadsheets.google.com/feeds + googleapis.com/auth/drive
-# ✅ ENV: GOOGLE_CREDENTIALS_JSON (nicht GOOGLE_CREDS_JSON!)
-# ✅ FastAPI + uvicorn (nicht Flask!)
-# ✅ MATZE_PHONE für alle Admin-Alerts
-# ✅ LINA_WA_NUMBER für Lina-Verweise
-# ✅ Startup-WhatsApp an Matze
-# ✅ APScheduler 08:00 Berlin + Admin-Summary
-# ✅ /zeitfenster Endpoint (GET)
-# ✅ /partner Endpoint (Admin-Übersicht)
-# ✅ /status Endpoint
-# ✅ Stripe: checkout.session.completed
-# ✅ find_partner_by_email für Stripe-Flow
-# ✅ .strip() + .lower() auf Zeitfenster überall
-# ✅ Phone-Normalisierung mit p: Prefix
-# ✅ Retry bei Google Sheets API-Fehlern
-# ✅ _skip_admin Flag gegen Endlos-Loops
-# ✅ Visuelle Formatierung (Box-Drawing)
-# ✅ Detaillierte Admin-Nachrichten bei JEDER Aktion
-# ✅ Sichtbare 08:00 Morgen-Nachricht
-# ✅ Guthaben-Warnstufen
+# FIXES in v6.4:
+# ✅ Auto-Erkennung vertauschter Felder (Email/Name/Phone)
+# ✅ Kampagnen-Info in Partner-Nachricht
+# ✅ Verständliche Nachrichten (kein Häkchen/X Kauderwelsch)
+# ✅ Poll-Fehler NICHT mehr an Matze senden
+# ✅ Admin-Nachricht zeigt was Partner bekommen hat
+# ✅ 24h-Fenster verständlich erklärt
+# ✅ Spalten verifiziert per CSV-Export:
+#    A=id B=created_time C=ad_id D=ad_name E=adset_id
+#    F=adset_name G=campaign_id H=campaign_name I=form_id
+#    J=form_name K=is_organic L=platform
+#    M=e-mail-adresse N=vollständiger_name O=telefonnummer
+#    P=lead_status
 # ============================================================
 
 import os
@@ -67,6 +51,7 @@ STRIPE_SECRET_KEY     = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 APP_URL               = os.getenv("APP_URL", "https://lead-verteilung.onrender.com")
 LINA_WA_NUMBER        = os.getenv("LINA_WA_NUMBER", "4915170605019")
+STRIPE_PAYMENT_LINK   = os.getenv("STRIPE_PAYMENT_LINK", "")
 
 # ─── Konstanten ────────────────────────────────────────────
 LEAD_PREIS     = 5.0
@@ -88,10 +73,19 @@ COL_ZEITFENSTER = 7   # G – Zeitfenster
 COL_EMAIL       = 8   # H – Email
 
 # ─── Spalten Tabellenblatt1 (0-basiert für row[index]) ─────
-LEAD_COL_EMAIL  = 12  # M – Email
-LEAD_COL_NAME   = 13  # N – Name
-LEAD_COL_PHONE  = 14  # O – Phone
-LEAD_COL_STATUS = 15  # P – Status
+# Header: M=e-mail-adresse(12) N=vollständiger_name(13) O=telefonnummer(14) P=lead_status(15)
+# ACHTUNG: Manche Facebook-Formulare schreiben die Daten vertauscht!
+# Deswegen: Auto-Erkennung per Inhalt (@ = Email, p:+ = Phone)
+LEAD_COL_FIELD1 = 12  # M – normalerweise Email, manchmal Name
+LEAD_COL_FIELD2 = 13  # N – normalerweise Name, manchmal Phone
+LEAD_COL_FIELD3 = 14  # O – normalerweise Phone, manchmal leer
+LEAD_COL_STATUS = 15  # P – Status (CREATED/VERTEILT/etc.)
+
+# Weitere Spalten für Kampagnen-Info
+LEAD_COL_AD_NAME       = 3   # D – ad_name
+LEAD_COL_CAMPAIGN_NAME = 7   # H – campaign_name
+LEAD_COL_ADSET_NAME    = 5   # F – adset_name
+LEAD_COL_FORM_NAME     = 9   # J – form_name
 
 # ─── Zeitfenster ───────────────────────────────────────────
 ZEITFENSTER = {
@@ -175,6 +169,59 @@ def normalize_phone(phone: str) -> str:
         return '49' + phone[1:]
     return phone
 
+# ─── Auto-Erkennung: Email / Name / Phone ─────────────────
+def looks_like_email(val: str) -> bool:
+    """Prüft ob ein Wert wie eine Email aussieht (enthält @)."""
+    return '@' in val
+
+def looks_like_phone(val: str) -> bool:
+    """Prüft ob ein Wert wie eine Telefonnummer aussieht (p:+ oder nur Ziffern/+)."""
+    v = val.strip()
+    if v.startswith('p:'):
+        return True
+    digits = re.sub(r'[\s\-\(\)\+]', '', v)
+    return len(digits) >= 8 and digits.isdigit()
+
+def smart_extract_lead_fields(field1: str, field2: str, field3: str) -> dict:
+    """
+    Erkennt automatisch welches Feld Email, Name und Phone ist.
+    Facebook schreibt die Daten manchmal in der falschen Reihenfolge.
+    """
+    fields = [field1.strip(), field2.strip(), field3.strip()]
+    email = ""
+    name = ""
+    phone = ""
+
+    # Schritt 1: Email finden (enthält @)
+    for f in fields:
+        if f and looks_like_email(f):
+            email = f
+            break
+
+    # Schritt 2: Phone finden (p:+ oder nur Ziffern)
+    for f in fields:
+        if f and f != email and looks_like_phone(f):
+            phone = f
+            break
+
+    # Schritt 3: Name = was übrig bleibt
+    for f in fields:
+        if f and f != email and f != phone:
+            name = f
+            break
+
+    # Fallback: Wenn nichts erkannt, Reihenfolge wie Header
+    if not email and not name and not phone:
+        email = field1.strip()
+        name = field2.strip()
+        phone = field3.strip()
+
+    return {
+        "email": email,
+        "name": name if name else "Unbekannt",
+        "phone": normalize_phone(phone),
+    }
+
 # ─── Ad-Quelle als lesbarer Text ──────────────────────────
 def get_ad_quelle(ad_name: str, campaign_name: str) -> str:
     name = (ad_name or campaign_name or "").lower()
@@ -193,6 +240,21 @@ def get_ad_quelle(ad_name: str, campaign_name: str) -> str:
     elif campaign_name:
         return f"📊 {campaign_name}"
     return "📊 Werbeanzeige"
+
+def get_kampagnen_typ(campaign_name: str) -> str:
+    """Gibt den Kampagnen-Typ zurück (Online Business oder LR Business)."""
+    name = (campaign_name or "").lower()
+    if "online" in name or "wage" in name or "geld" in name or "nebeneinkommen" in name:
+        return "💻 Online Business"
+    elif "lr business" in name or "lead kam" in name:
+        return "🏢 LR Business"
+    elif "lina" in name or "voice" in name:
+        return "🎙️ LINA Voice"
+    elif "auto" in name or "porsche" in name or "reel" in name:
+        return "🚗 Auto/Lifestyle Reel"
+    elif campaign_name:
+        return f"📊 {campaign_name}"
+    return "📊 Unbekannt"
 
 # ─── WhatsApp senden ───────────────────────────────────────
 def send_whatsapp(phone: str, message: str, _skip_admin: bool = False) -> bool:
@@ -233,11 +295,15 @@ def send_whatsapp(phone: str, message: str, _skip_admin: bool = False) -> bool:
             if not _skip_admin:
                 send_whatsapp(
                     MATZE_PHONE,
-                    f"⚠️ *24h-Fenster geschlossen!*\n\n"
-                    f"📱 Empfänger: {phone}\n"
-                    f"❌ Partner muss zuerst Lina schreiben:\n"
-                    f"👉 https://wa.me/{LINA_WA_NUMBER}\n\n"
-                    f"Danach erneut versuchen.",
+                    f"⚠️ *WhatsApp konnte nicht zugestellt werden*\n\n"
+                    f"📱 An: {phone}\n"
+                    f"📌 Grund: Der Empfänger hat in den letzten 24 Stunden "
+                    f"nicht mit unserer Business-Nummer geschrieben.\n"
+                    f"WhatsApp erlaubt erst dann Nachrichten, wenn der "
+                    f"Empfänger uns zuerst schreibt.\n\n"
+                    f"👉 *Lösung:* Empfänger soll einmal kurz Lina schreiben:\n"
+                    f"https://wa.me/{LINA_WA_NUMBER}\n\n"
+                    f"Danach können wir ihm Nachrichten senden.",
                     _skip_admin=True
                 )
         else:
@@ -273,10 +339,9 @@ def get_all_partner_records():
                         "row_index":   i,
                         "name":        str(row.get("Name", "")).strip(),
                         "phone":       str(row.get("Telefon", "")).strip(),
-                        "email":       str(row.get("Email", "")).strip().lower(),
-                        "status":      str(row.get("Status", "")).strip(),
                         "guthaben":    guthaben,
-                        "last_lead":   str(row.get("Letzter_Lead_Am", "")).strip(),
+                        "email":       str(row.get("Email", "")).strip().lower(),
+                        "status":      str(row.get("Status", "Aktiv")).strip(),
                         "lead_count":  int(
                             str(row.get("Leads_Geliefert", 0))
                             .replace(",", "").strip() or 0
@@ -284,6 +349,7 @@ def get_all_partner_records():
                         "zeitfenster": str(
                             row.get("Zeitfenster", "Ganztag")
                         ).strip() or "Ganztag",
+                        "last_lead":   str(row.get("Letzter_Lead_Am", "")).strip(),
                     })
                 except Exception as e:
                     logger.warning(f"Partner Zeile {i} Fehler: {e}")
@@ -327,9 +393,10 @@ def find_best_partner():
         logger.warning("🚨 Kein aktiver Partner mit Guthaben!")
         send_whatsapp(
             MATZE_PHONE,
-            "🚨 *ALERT: Kein Partner verfügbar!*\n\n"
-            "Kein aktiver Partner hat genug Guthaben.\n"
-            "Bitte Partner zum Aufladen auffordern!"
+            "🚨 *Kein Partner verfügbar!*\n\n"
+            "Keiner deiner aktiven Partner hat genug Guthaben.\n"
+            "Bitte Partner zum Aufladen auffordern!",
+            _skip_admin=True
         )
         return None
 
@@ -376,28 +443,30 @@ def update_zeitfenster_im_sheet(phone: str, zeitfenster: str) -> bool:
                 ws.update_cell(p["row_index"], COL_ZEITFENSTER, zeitfenster)
                 logger.info(f"✅ Zeitfenster {phone} → {zeitfenster}")
                 # Admin informieren
+                zf_text = ZEITFENSTER_TEXT.get(zeitfenster.strip().lower(), zeitfenster)
                 send_whatsapp(
                     MATZE_PHONE,
                     f"⏰ *Zeitfenster geändert!*\n\n"
                     f"👤 {p['name']}\n"
                     f"📱 {p['phone']}\n"
-                    f"⏰ Neues Fenster: *{zeitfenster}* ({ZEITFENSTER_TEXT.get(zeitfenster.strip().lower(), zeitfenster)})",
+                    f"⏰ Neues Zeitfenster: {zf_text}",
                     _skip_admin=True
                 )
                 return True
-        logger.warning(f"⚠️ Partner {phone} nicht gefunden für Zeitfenster")
         return False
     except Exception as e:
         logger.error(f"❌ Zeitfenster-Update Fehler: {e}")
         return False
 
-def add_new_partner(name: str, email: str, phone: str, guthaben: float):
+# ─── Neuen Partner anlegen ────────────────────────────────
+def add_new_partner(name: str, email: str, phone_raw: str, guthaben: float):
     try:
         ws = get_partner_sheet()
+        phone = normalize_phone(phone_raw)
         now_str = datetime.now(BERLIN_TZ).strftime("%Y-%m-%d %H:%M:%S")
         ws.append_row([
             name,
-            normalize_phone(phone),
+            phone,
             guthaben,
             0,
             now_str,
@@ -446,54 +515,56 @@ def process_lead(lead_data: dict):
     neues_guthaben = partner["guthaben"] - LEAD_PREIS
     new_lead_count = partner["lead_count"] + 1
     ad_quelle      = get_ad_quelle(ad_name, campaign_name)
+    kampagnen_typ  = get_kampagnen_typ(campaign_name)
 
-    # ── Partner-Nachricht (vollständig!) ──
+    # ── Partner-Nachricht (vollständig + verständlich!) ──
     partner_msg = (
         f"╔════════════════════════════════════╗\n"
-        f"║     🎯 NEUER LEAD EINGEGANGEN!     ║\n"
+        f"║     🎯 NEUER LEAD FÜR DICH!        ║\n"
         f"╚════════════════════════════════════╝\n\n"
         f"👤 *Name:* {lead_name}\n"
-        f"📞 *Telefon:* +{lead_phone}\n"
-        f"📧 *Email:* {lead_email}\n\n"
-        f"💬 *Lead kam über:*\n{ad_quelle}\n"
     )
-    if campaign_name:
-        partner_msg += f"📊 *Kampagne:* {campaign_name}\n"
-    if ad_name:
-        partner_msg += f"🎯 *Anzeige:* {ad_name}\n"
+    if lead_phone:
+        partner_msg += f"📞 *Telefon:* +{lead_phone}\n"
+    if lead_email:
+        partner_msg += f"📧 *Email:* {lead_email}\n"
 
     partner_msg += (
-        f"\n💰 *Dein Guthaben:* {neues_guthaben:.2f} €\n"
-        f"📦 *Leads erhalten:* {new_lead_count}\n"
+        f"\n💬 *Woher kommt der Lead:*\n"
+        f"📊 Kampagne: {kampagnen_typ}\n"
+    )
+    if campaign_name:
+        partner_msg += f"📋 {campaign_name}\n"
+    if ad_name:
+        partner_msg += f"🎯 Anzeige: {ad_name}\n"
+
+    partner_msg += (
+        f"\n💰 *Dein Guthaben danach:* {neues_guthaben:.2f} €\n"
+        f"📦 *Deine Leads insgesamt:* {new_lead_count}\n"
     )
 
     if neues_guthaben < 15:
+        aufladen_text = ""
+        if STRIPE_PAYMENT_LINK:
+            aufladen_text = f"💳 Jetzt aufladen: {STRIPE_PAYMENT_LINK}\n"
+        aufladen_text += f"💬 Oder schreib Lina: https://wa.me/{LINA_WA_NUMBER}"
         partner_msg += (
-            f"\n⚠️ *ACHTUNG: Guthaben niedrig!*\n"
-            f"Jetzt aufladen damit du weiter Leads bekommst:\n"
-            f"👉 Schreib Lina: https://wa.me/{LINA_WA_NUMBER}\n"
+            f"\n⚠️ *Guthaben wird knapp!*\n"
+            f"Lade jetzt auf, damit du weiter Leads bekommst:\n"
+            f"{aufladen_text}\n"
         )
 
-    partner_msg += f"\n⚡ *Schnell handeln = Erfolg!*"
-
-    # ── Admin-Nachricht (detailliert!) ──
-    admin_msg = (
-        f"✅ *Lead verteilt!*\n\n"
-        f"👤 *Lead:* {lead_name}\n"
-        f"📞 Tel: +{lead_phone}\n"
-        f"📧 Email: {lead_email}\n"
-        f"💬 Quelle: {ad_quelle}\n"
+    partner_msg += (
+        f"\n⚡ *Tipp: Ruf den Lead am besten sofort an!*\n"
+        f"Je schneller du dich meldest, desto höher die Chance."
     )
-    if campaign_name:
-        admin_msg += f"📊 Kampagne: {campaign_name}\n"
-    if ad_name:
-        admin_msg += f"🎯 Anzeige: {ad_name}\n"
 
-    # Senden
+    # ── Senden an Partner ──
     wa_partner_ok = send_whatsapp(partner["phone"], partner_msg)
 
-    # Lead auch anschreiben wenn Nummer vorhanden
+    # ── Lead auch anschreiben wenn Nummer vorhanden ──
     wa_lead_ok = False
+    lead_wa_info = "Keine Nummer vorhanden"
     if lead_phone:
         lead_msg = (
             f"Hallo {lead_name}! 👋\n\n"
@@ -503,14 +574,41 @@ def process_lead(lead_data: dict):
             f"Beste Grüße,\nDein LR Lifestyle Team 🚀"
         )
         wa_lead_ok = send_whatsapp(lead_phone, lead_msg)
+        if wa_lead_ok:
+            lead_wa_info = "Zugestellt"
+        else:
+            lead_wa_info = "Nicht zugestellt (Lead muss erst Lina schreiben)"
+
+    # ── Admin-Nachricht (detailliert + verständlich!) ──
+    admin_msg = (
+        f"✅ *Neuer Lead verteilt!*\n\n"
+        f"━━━ LEAD-DATEN ━━━\n"
+        f"👤 Name: {lead_name}\n"
+    )
+    if lead_phone:
+        admin_msg += f"📞 Telefon: +{lead_phone}\n"
+    if lead_email:
+        admin_msg += f"📧 Email: {lead_email}\n"
+    admin_msg += (
+        f"📊 Kampagne: {kampagnen_typ}\n"
+    )
+    if campaign_name:
+        admin_msg += f"📋 {campaign_name}\n"
+    if ad_name:
+        admin_msg += f"🎯 Anzeige: {ad_name}\n"
 
     admin_msg += (
-        f"\n→ *Partner:* {partner['name']}\n"
-        f"📱 Partner-Tel: {partner['phone']}\n"
+        f"\n━━━ ZUGEWIESEN AN ━━━\n"
+        f"👤 Partner: {partner['name']}\n"
+        f"📱 Tel: {partner['phone']}\n"
         f"💰 Guthaben: {partner['guthaben']:.2f}€ → {neues_guthaben:.2f}€\n"
-        f"📦 Leads: {new_lead_count}\n\n"
-        f"📲 WA Partner: {'✅' if wa_partner_ok else '❌'}\n"
-        f"📲 WA Lead: {'✅' if wa_lead_ok else '❌ (kein 24h-Fenster)'}"
+        f"📦 Leads gesamt: {new_lead_count}\n"
+    )
+
+    admin_msg += (
+        f"\n━━━ STATUS ━━━\n"
+        f"📲 Partner-Nachricht: {'Zugestellt' if wa_partner_ok else 'NICHT zugestellt!'}\n"
+        f"📲 Lead-Nachricht: {lead_wa_info}\n"
     )
 
     send_whatsapp(MATZE_PHONE, admin_msg, _skip_admin=True)
@@ -585,11 +683,12 @@ def process_stripe_payment(session: dict):
             # Admin-Info
             send_whatsapp(
                 MATZE_PHONE,
-                f"💳 *Aufladung!*\n\n"
-                f"👤 {existing['name']}\n"
-                f"📧 {email}\n"
-                f"💰 +{betrag:.0f}€ → Neues Guthaben: {new_guthaben:.2f}€\n"
-                f"📲 WA Partner: {'✅' if wa_ok else '❌'}",
+                f"💳 *Guthaben aufgeladen!*\n\n"
+                f"👤 Partner: {existing['name']}\n"
+                f"📧 Email: {email}\n"
+                f"💰 Betrag: +{betrag:.0f}€\n"
+                f"💳 Neues Guthaben: {new_guthaben:.2f}€\n"
+                f"📲 Partner informiert: {'Ja' if wa_ok else 'Nein (24h-Fenster)'}",
                 _skip_admin=True
             )
 
@@ -625,12 +724,12 @@ def process_stripe_payment(session: dict):
             # Admin-Info
             send_whatsapp(
                 MATZE_PHONE,
-                f"🆕 *Neuer Partner!*\n\n"
-                f"👤 {name}\n"
-                f"📧 {email}\n"
-                f"📱 {partner_phone or 'Keine Nummer'}\n"
+                f"🆕 *Neuer Partner registriert!*\n\n"
+                f"👤 Name: {name}\n"
+                f"📧 Email: {email}\n"
+                f"📱 Telefon: {partner_phone or 'Keine Nummer'}\n"
                 f"💰 Startguthaben: {betrag:.2f}€\n"
-                f"📲 WA: {'✅' if wa_ok else '❌'}",
+                f"📲 Willkommen-Nachricht: {'Zugestellt' if wa_ok else 'Nicht zugestellt'}",
                 _skip_admin=True
             )
 
@@ -652,61 +751,78 @@ def send_daily_reminders():
         gesendet = []
         fehlgeschlagen = []
 
-        for partner in aktive:
+        for p in aktive:
+            phone = p["phone"]
+            name = p["name"]
+            guthaben = p["guthaben"]
+            zeitfenster = p.get("zeitfenster", "Ganztag")
+            zf_text = ZEITFENSTER_TEXT.get(zeitfenster.strip().lower(), zeitfenster)
+
             # Zeitfenster-Links
-            link_g = f"{APP_URL}/zeitfenster?phone={partner['phone']}&wahl=Ganztag"
-            link_v = f"{APP_URL}/zeitfenster?phone={partner['phone']}&wahl=Vormittag"
-            link_n = f"{APP_URL}/zeitfenster?phone={partner['phone']}&wahl=Nachmittag"
-            link_a = f"{APP_URL}/zeitfenster?phone={partner['phone']}&wahl=Abend"
+            link_g = f"{APP_URL}/zeitfenster?phone={phone}&wahl=Ganztag"
+            link_v = f"{APP_URL}/zeitfenster?phone={phone}&wahl=Vormittag"
+            link_n = f"{APP_URL}/zeitfenster?phone={phone}&wahl=Nachmittag"
+            link_a = f"{APP_URL}/zeitfenster?phone={phone}&wahl=Abend"
 
             # Guthaben-Warnung
-            if partner["guthaben"] < 15:
-                guthaben_info = f"🚨 *ACHTUNG: Nur noch {partner['guthaben']:.2f}€!*\nJetzt aufladen: https://wa.me/{LINA_WA_NUMBER}"
-            elif partner["guthaben"] < 30:
-                guthaben_info = f"💡 Tipp: Bald aufladen ({partner['guthaben']:.2f}€)"
+            if guthaben < 5:
+                guthaben_info = f"🔴 *ACHTUNG: Guthaben aufgebraucht!* ({guthaben:.2f}€)\nDu bekommst KEINE Leads mehr!"
+            elif guthaben < 15:
+                guthaben_info = f"🟡 *Guthaben wird knapp:* {guthaben:.2f}€\nNoch {int(guthaben / LEAD_PREIS)} Leads möglich."
             else:
-                guthaben_info = f"✅ Guthaben ausreichend ({partner['guthaben']:.2f}€)"
+                guthaben_info = f"🟢 *Guthaben:* {guthaben:.2f}€\nNoch {int(guthaben / LEAD_PREIS)} Leads möglich."
 
-            zf_text = ZEITFENSTER_TEXT.get(partner["zeitfenster"].strip().lower(), partner["zeitfenster"])
+            aufladen_text = ""
+            if guthaben < 30:
+                if STRIPE_PAYMENT_LINK:
+                    aufladen_text = f"\n💳 Jetzt aufladen: {STRIPE_PAYMENT_LINK}"
+                aufladen_text += f"\n💬 Oder schreib Lina: https://wa.me/{LINA_WA_NUMBER}"
 
             msg = (
-                f"🚨🚨🚨 *GUTEN MORGEN {partner['name'].upper()}!* 🚨🚨🚨\n\n"
-                f"Dein Lead-System ist AKTIV! 🟢\n\n"
-                f"💰 *Guthaben:* {partner['guthaben']:.2f} €\n"
+                f"🚨🚨🚨 *GUTEN MORGEN {name.upper()}!* 🚨🚨🚨\n\n"
+                f"Hier ist dein tägliches Update:\n\n"
+                f"{guthaben_info}\n"
                 f"⏰ *Zeitfenster:* {zf_text}\n"
-                f"📦 *Leads erhalten:* {partner['lead_count']}\n\n"
-                f"{guthaben_info}\n\n"
-                f"⏰ *Zeitfenster ändern:*\n"
+                f"{aufladen_text}\n\n"
+                f"Zeitfenster ändern? Einfach antippen:\n"
                 f"1️⃣ Ganztag (08–22h): {link_g}\n"
                 f"2️⃣ Vormittag (08–12h): {link_v}\n"
                 f"3️⃣ Nachmittag (12–17h): {link_n}\n"
                 f"4️⃣ Abend (17–22h): {link_a}\n\n"
-                f"👍 Kurze Antwort (OK) damit Leads heute ankommen!"
+                f"Einen erfolgreichen Tag! 💪🚀"
             )
 
-            ok = send_whatsapp(partner["phone"], msg)
+            ok = send_whatsapp(phone, msg)
             if ok:
-                gesendet.append(f"✅ {partner['name']} ({partner['guthaben']:.2f}€, {partner['zeitfenster']})")
+                gesendet.append(f"  ✅ {name} ({guthaben:.0f}€)")
             else:
-                fehlgeschlagen.append(f"❌ {partner['name']} (Tel: {partner['phone']})")
+                fehlgeschlagen.append(f"  ❌ {name} ({phone})")
 
-            time.sleep(1)
+            time.sleep(2)  # Rate-Limit Schutz
 
         # Admin-Summary
-        datum = datetime.now(BERLIN_TZ).strftime("%d.%m.%Y")
-        summary = f"📊 *TAGES-REPORT {datum}*\n\n"
+        summary = (
+            f"📊 *Tages-Report {datetime.now(BERLIN_TZ).strftime('%d.%m.%Y')}*\n\n"
+        )
 
         if gesendet:
-            summary += f"*Gesendet ({len(gesendet)}):*\n"
+            summary += f"*Morgen-Nachricht zugestellt ({len(gesendet)}):*\n"
             summary += "\n".join(gesendet)
             summary += "\n\n"
 
         if fehlgeschlagen:
-            summary += f"*Fehlgeschlagen ({len(fehlgeschlagen)}):*\n"
+            summary += f"*Nicht zugestellt ({len(fehlgeschlagen)}):*\n"
             summary += "\n".join(fehlgeschlagen)
-            summary += f"\n→ Bitte Lina schreiben lassen!\n\n"
+            summary += f"\n→ Diese Partner müssen erst Lina schreiben!\n\n"
 
-        summary += f"*Gesamt aktiv:* {len(aktive)} Partner"
+        pausierte = [p for p in all_records if p["status"].strip().lower() != "aktiv"]
+        if pausierte:
+            summary += f"*Pausiert ({len(pausierte)}):*\n"
+            for p in pausierte:
+                summary += f"  ⏸️ {p['name']} ({p['guthaben']:.0f}€)\n"
+            summary += "\n"
+
+        summary += f"*Gesamt:* {len(all_records)} Partner | {len(aktive)} aktiv | {len(pausierte)} pausiert"
 
         send_whatsapp(MATZE_PHONE, summary, _skip_admin=True)
 
@@ -735,24 +851,34 @@ def _do_poll():
                 # Sofort auf PROCESSING setzen
                 ws.update_cell(i, LEAD_COL_STATUS + 1, "PROCESSING")
 
-                # Lead-Daten extrahieren (Index 12=Email, 13=Name, 14=Phone)
-                raw_email = row[LEAD_COL_EMAIL] if len(row) > LEAD_COL_EMAIL else ""
-                raw_name  = row[LEAD_COL_NAME]  if len(row) > LEAD_COL_NAME  else ""
-                raw_phone = row[LEAD_COL_PHONE] if len(row) > LEAD_COL_PHONE else ""
+                # Rohdaten aus den 3 Feldern lesen
+                raw_field1 = row[LEAD_COL_FIELD1] if len(row) > LEAD_COL_FIELD1 else ""
+                raw_field2 = row[LEAD_COL_FIELD2] if len(row) > LEAD_COL_FIELD2 else ""
+                raw_field3 = row[LEAD_COL_FIELD3] if len(row) > LEAD_COL_FIELD3 else ""
+
+                # Auto-Erkennung: Email / Name / Phone
+                extracted = smart_extract_lead_fields(raw_field1, raw_field2, raw_field3)
+
+                # Kampagnen-Daten
+                ad_name       = row[LEAD_COL_AD_NAME].strip() if len(row) > LEAD_COL_AD_NAME else ""
+                campaign_name = row[LEAD_COL_CAMPAIGN_NAME].strip() if len(row) > LEAD_COL_CAMPAIGN_NAME else ""
 
                 lead_data = {
                     "lead_id":       row[0]  if len(row) > 0  else "",
                     "ad_id":         row[2]  if len(row) > 2  else "",
-                    "ad_name":       row[3]  if len(row) > 3  else "",
-                    "campaign_name": row[7]  if len(row) > 7  else "",
-                    "email":         raw_email.strip(),
-                    "name":          raw_name.strip(),
-                    "phone":         normalize_phone(raw_phone),
+                    "ad_name":       ad_name,
+                    "campaign_name": campaign_name,
+                    "email":         extracted["email"],
+                    "name":          extracted["name"],
+                    "phone":         extracted["phone"],
                 }
 
                 logger.info(
-                    f"📋 Lead Zeile {i}: Name='{lead_data['name']}', "
-                    f"Email='{lead_data['email']}', Phone='{lead_data['phone']}'"
+                    f"📋 Lead Zeile {i}: "
+                    f"Raw=['{raw_field1}', '{raw_field2}', '{raw_field3}'] → "
+                    f"Name='{lead_data['name']}', "
+                    f"Email='{lead_data['email']}', "
+                    f"Phone='{lead_data['phone']}'"
                 )
 
                 success = process_lead(lead_data)
@@ -766,8 +892,8 @@ def _do_poll():
                     pass
 
     except json.JSONDecodeError as e:
-        # Google API Rate Limit – NICHT an Matze senden, nur loggen
-        logger.warning(f"⚠️ Google API Rate Limit (wird beim nächsten Poll erneut versucht): {e}")
+        # Google API Rate Limit – NUR loggen, NICHT an Matze senden
+        logger.warning(f"⚠️ Google API Rate Limit (nächster Poll versucht es erneut): {e}")
     except Exception as e:
         logger.error(f"❌ Poll-Fehler: {e}")
 
@@ -781,11 +907,13 @@ def polling_loop():
         except Exception as e:
             consecutive_errors += 1
             logger.error(f"❌ Polling-Loop Fehler #{consecutive_errors}: {e}")
-            if consecutive_errors >= 3:
+            if consecutive_errors >= 5:
                 send_whatsapp(
                     MATZE_PHONE,
-                    f"🚨 *Polling-Fehler!*\n\n"
-                    f"3x hintereinander fehlgeschlagen:\n{str(e)[:200]}",
+                    f"🚨 *Polling-Problem!*\n\n"
+                    f"5x hintereinander fehlgeschlagen.\n"
+                    f"Letzter Fehler: {str(e)[:200]}\n\n"
+                    f"System versucht weiter automatisch.",
                     _skip_admin=True
                 )
                 consecutive_errors = 0
@@ -814,13 +942,13 @@ def validate_sheet_headers():
         return False
 
 # ─── FastAPI App ───────────────────────────────────────────
-app = FastAPI(title="Lead-Verteilungs-Service v6.3")
+app = FastAPI(title="Lead-Verteilungs-Service v6.4")
 
 @app.get("/")
 def root():
     return {
         "service":  "Lead-Verteilungs-Service",
-        "version":  "6.3",
+        "version":  "6.4",
         "status":   "running",
         "sheets": {
             "leads":   LEADS_SHEET_NAME,
@@ -833,7 +961,7 @@ def root():
 def health():
     return {
         "status":    "ok",
-        "version":   "6.3",
+        "version":   "6.4",
         "timestamp": datetime.now(BERLIN_TZ).isoformat()
     }
 
@@ -844,7 +972,7 @@ def status_check():
         aktive = [p for p in all_records if p["status"].strip().lower() == "aktiv"]
         return {
             "status": "ok",
-            "version": "6.3",
+            "version": "6.4",
             "partner_gesamt": len(all_records),
             "partner_aktiv": len(aktive),
             "timestamp": datetime.now(BERLIN_TZ).isoformat()
@@ -921,10 +1049,9 @@ def zeitfenster_waehlen(phone: str, wahl: str):
     if success:
         send_whatsapp(
             phone,
-            f"✅ *Zeitfenster gesetzt!*\n\n"
-            f"⏰ Du erhältst Leads: *{wahl}* ({zf_text})\n\n"
-            f"Ändern? Einfach erneut einen Link antippen oder Matze schreiben:\n"
-            f"👉 wa.me/491715060008"
+            f"✅ *Zeitfenster gespeichert!*\n\n"
+            f"⏰ Du erhältst Leads: *{zf_text}*\n\n"
+            f"Ändern? Einfach erneut einen Link antippen."
         )
         return HTMLResponse(content=f"""
         <html><body style="font-family:Arial;text-align:center;
@@ -980,16 +1107,16 @@ def startup_event():
     # Startmeldung an Matze
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v6.3 gestartet!*\n\n"
+        f"🚀 *Lead-System v6.4 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
         f"✅ Stripe Webhook aktiv\n"
         f"✅ Zeitfenster-Links aktiv\n"
-        f"✅ Admin-Benachrichtigungen aktiv\n"
-        f"✅ Email-Match via Spalte H\n"
+        f"✅ Admin-Infos bei jeder Aktion\n"
+        f"✅ Auto-Erkennung Email/Name/Phone\n"
+        f"✅ Kampagnen-Info in Partner-Nachricht\n"
         f"{'✅' if header_ok else '❌'} Sheet-Header geprüft\n"
-        f"✅ Spalten: 12=Email, 13=Name, 14=Phone\n"
         f"✅ Lina: {LINA_WA_NUMBER}\n\n"
-        f"Alles grün Matze! 💪",
+        f"Alles läuft! 💪",
         _skip_admin=True
     )
