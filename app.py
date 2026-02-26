@@ -1,5 +1,4 @@
-/mnt/user-data/outputs/lead-system/app_v5_2.py
-Copyfrom fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse
 import requests
 import gspread
@@ -180,7 +179,10 @@ def send_whatsapp(to: str, message: str, _skip_admin: bool = False) -> bool:
         err_data = {}
         ct = r.headers.get("content-type", "")
         if "application/json" in ct:
-            err_data = r.json()
+            try:
+                err_data = r.json()
+            except Exception:
+                err_data = {}
         err_code = err_data.get("error", {}).get("code", 0)
         if err_code == 131047 and not _skip_admin:
             admin_msg = (
