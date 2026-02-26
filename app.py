@@ -47,7 +47,7 @@ GOOGLE_SHEET_ID       = os.getenv("GOOGLE_SHEET_ID", "1wVevVuP1sm_2g7eg37rCYSVSo
 STRIPE_SECRET_KEY     = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 APP_URL               = os.getenv("APP_URL", "https://lead-verteilung.onrender.com")
-LINA_WA_NUMBER        = os.getenv("LINA_WA_NUMBER", "4915735989735")
+LINA_WA_NUMBER        = os.getenv("LINA_WA_NUMBER", "4915170605019")
 
 # ─── Konstanten ────────────────────────────────────────────
 LEAD_PREIS     = 5.0
