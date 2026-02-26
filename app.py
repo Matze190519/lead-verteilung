@@ -259,12 +259,12 @@ FUNNEL_MAPPING = [
         "emoji": "🚗",
         "beschreibung": (
             "Video-Reel: Autos mit LR-Branding.\n"
-            "Der Interessent hat gesehen, dass LR Autos zu 70-80% finanziert –\n"
+            "LR Autos sind 70-80% günstiger dank Großhandelskonditionen –\n"
             "ohne Anzahlung, ohne Schlussrate, ab der ersten Stufe bestellbar."
         ),
         "tipps": [
             "💡 Frag, welches Auto ihm im Reel am besten gefallen hat",
-            "💡 Erkläre: 70-80% finanziert, keine Anzahlung, keine Schlussrate",
+            "💡 Erkläre: 70-80% günstiger dank Großhandel, keine Anzahlung, keine Schlussrate",
             "💡 Viele bestellen ihr Auto schon am ersten Tag – erwähne das!",
         ],
     },
