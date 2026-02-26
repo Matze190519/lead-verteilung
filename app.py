@@ -1,5 +1,5 @@
 # ============================================================
-# Lead-Verteilungs-Service v6.5 FINAL
+# Lead-Verteilungs-Service v6.7 FINAL
 # ============================================================
 # Basis: v4.9 (stabil) + v6.3 + alle Fixes
 # ============================================================
@@ -230,33 +230,44 @@ def smart_extract_lead_fields(field1: str, field2: str, field3: str) -> dict:
 FUNNEL_MAPPING = [
     {
         # Kampagne: Matze NEU 05.10.2025
-        # Anzeigen mit "Wage", "Clean" etc. = Bilder mit garantiertem Bonus
+        # Bildanzeigen: "3 Fragen an dich", "Wie lange noch für andere arbeiten?",
+        # "Was wäre, wenn dein Nebenverdienst dein Hauptverdienst wird?",
+        # "Bereit für den ersten Schritt?"
+        # Formular: 500-3.000€/Monat neben Hauptjob, flexible Zeiten, von überall
         "keywords": ["wage", "clean", "online", "garantie", "bonus",
-                     "matze neu", "von zu hause", "nebeneinkommen"],
-        "label": "💻 Online-Business mit garantiertem Bonus",
-        "emoji": "💻",
+                     "matze neu", "von zu hause", "nebeneinkommen",
+                     "3 fragen", "nebenverdienst", "hauptverdienst"],
+        "label": "📸 Bild-Kampagne (Nebenverdienst / Online-Business)",
+        "emoji": "📸",
         "beschreibung": (
-            "Bildanzeige: Online arbeiten, garantierter Bonus, von zu Hause aus."
+            "Der Interessent hat eine Bildanzeige gesehen mit den 3 Fragen:\n"
+            "1. Wie lange noch für andere arbeiten?\n"
+            "2. Was wäre, wenn dein Nebenverdienst dein Hauptverdienst wird?\n"
+            "3. Bereit für den ersten Schritt?\n"
+            "Er sucht einen Nebenverdienst von 500-3.000€/Monat."
         ),
         "tipps": [
-            "💡 Frag, was ihn am Online-Business am meisten anspricht",
-            "💡 Erwähne den garantierten Startbonus als Einstieg",
-            "💡 Frag, ob er sich vorstellen kann, flexibel von zu Hause zu arbeiten",
+            "💡 Frag ihn: Wie lange willst du noch für andere arbeiten?",
+            "💡 Frag, was er sich von einem Nebenverdienst erhofft",
+            "💡 Erkläre kurz, wie er mit LR 500-3.000€ nebenbei verdienen kann",
         ],
     },
     {
         # Kampagne: LR Business Lead Kampagne - OPTIMIERT mit Retargeting
-        # Anzeigen = LR Auto Reels (Videos mit Autos, Lifestyle)
+        # LR Auto Reels (Videos mit LR Firmenwagen, Lifestyle)
+        # Gleiches Formular: 500-3.000€/Monat, flexible Zeiten
         "keywords": ["lr business", "retargeting", "optimiert", "lead kam",
                      "auto", "reel", "firmenwagen", "porsche", "bmw", "amg"],
         "label": "🚗 LR Auto Reels (Lifestyle & Firmenwagen)",
         "emoji": "🚗",
         "beschreibung": (
-            "Video-Reel: LR Firmenwagen-Konzept, Lifestyle, Autos."
+            "Der Interessent hat ein LR Auto-Reel gesehen mit Firmenwagen.\n"
+            "Er sucht einen Nebenverdienst von 500-3.000€/Monat.\n"
+            "Das Auto-Programm hat sein Interesse geweckt."
         ),
         "tipps": [
             "💡 Frag, welches Auto ihm im Reel am besten gefallen hat",
-            "💡 Erzähl vom LR Autokonzept: Firmenwagen OHNE Anzahlung",
+            "💡 Erkläre das LR Autokonzept: Firmenwagen OHNE Anzahlung",
             "💡 Frag, ob er sich vorstellen kann, so ein Auto über LR zu fahren",
         ],
     },
@@ -969,7 +980,7 @@ def validate_sheet_headers():
         return False
 
 # ─── FastAPI App ───────────────────────────────────────────
-app = FastAPI(title="Lead-Verteilungs-Service v6.6")
+app = FastAPI(title="Lead-Verteilungs-Service v6.7")
 
 @app.get("/")
 def root():
@@ -1134,7 +1145,7 @@ def startup_event():
     # Startmeldung an Matze
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v6.6 gestartet!*\n\n"
+        f"🚀 *Lead-System v6.7 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
         f"✅ Stripe Webhook aktiv\n"
