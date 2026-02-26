@@ -1,9 +1,9 @@
 # ============================================================
-# Lead-Verteilungs-Service v6.4 FINAL
+# Lead-Verteilungs-Service v6.5 FINAL
 # ============================================================
 # Basis: v4.9 (stabil) + v6.3 + alle Fixes
 # ============================================================
-# FIXES in v6.4:
+# FIXES in v6.5 (basiert auf v6.4):
 # ✅ Auto-Erkennung vertauschter Felder (Email/Name/Phone)
 # ✅ Kampagnen-Info in Partner-Nachricht
 # ✅ Verständliche Nachrichten (kein Häkchen/X Kauderwelsch)
@@ -222,39 +222,99 @@ def smart_extract_lead_fields(field1: str, field2: str, field3: str) -> dict:
         "phone": normalize_phone(phone),
     }
 
-# ─── Ad-Quelle als lesbarer Text ──────────────────────────
-def get_ad_quelle(ad_name: str, campaign_name: str) -> str:
-    name = (ad_name or campaign_name or "").lower()
-    if "porsche" in name or "reel" in name or "auto" in name or "bmw" in name or "amg" in name:
-        return "🚗 Auto LR Reel (Lifestyle, Autos, Erfolg)"
-    elif "wage" in name or "clean" in name or "geld" in name or "online" in name or "100" in name or "500" in name or "1000" in name:
-        return "💻 Online Business (Nebeneinkommen, Flexibilität)"
-    elif "zoom" in name or "call" in name or "info" in name:
-        return "📞 Zoom Info Call (Informations-Gespräch)"
-    elif "gesundheit" in name or "health" in name or "product" in name:
-        return "💚 LR Gesundheitsprodukte"
-    elif "lina" in name or "voice" in name or "partner" in name or "akquise" in name:
-        return "🎙️ LINA Voice (Partner Akquise)"
-    elif ad_name:
-        return f"📊 {ad_name}"
-    elif campaign_name:
-        return f"📊 {campaign_name}"
-    return "📊 Werbeanzeige"
+# ─── Funnel-Mapping ───────────────────────────────────────
+# Ordnet Kampagnen/Anzeigen einem verständlichen Funnel zu,
+# damit Partner wissen was der Lead gesehen hat.
+# ──────────────────────────────────────────────────────────
 
-def get_kampagnen_typ(campaign_name: str) -> str:
-    """Gibt den Kampagnen-Typ zurück (Online Business oder LR Business)."""
-    name = (campaign_name or "").lower()
-    if "online" in name or "wage" in name or "geld" in name or "nebeneinkommen" in name:
-        return "💻 Online Business"
-    elif "lr business" in name or "lead kam" in name:
-        return "🏢 LR Business"
-    elif "lina" in name or "voice" in name:
-        return "🎙️ LINA Voice"
-    elif "auto" in name or "porsche" in name or "reel" in name:
-        return "🚗 Auto/Lifestyle Reel"
-    elif campaign_name:
-        return f"📊 {campaign_name}"
-    return "📊 Unbekannt"
+FUNNEL_MAPPING = [
+    {
+        "keywords": ["auto", "firmenwagen", "porsche", "bmw", "amg", "reel"],
+        "label": "LR Auto & Firmenwagen",
+        "emoji": "🚗",
+        "beschreibung": (
+            "Der Lead hat eine Anzeige zum LR Firmenwagen-Konzept gesehen. "
+            "Er erwartet Infos, wie er mit LR starten kann, um sich einen "
+            "Firmenwagen zu absoluten Sonderkonditionen zu sichern."
+        ),
+    },
+    {
+        "keywords": ["wage", "clean", "online", "garantie", "bonus"],
+        "label": "Online-Business + Bonus",
+        "emoji": "💻",
+        "beschreibung": (
+            "Der Lead hat eine Anzeige zum Online-Business mit garantiertem "
+            "Bonus gesehen. Er erwartet ein klares System, wie er mit LR "
+            "online starten und sich seinen garantierten Bonus sichern kann."
+        ),
+    },
+    {
+        "keywords": ["nebenverdienst", "hauptverdienst", "3 fragen", "info-paket"],
+        "label": "Nebenverdienst → Hauptverdienst",
+        "emoji": "💰",
+        "beschreibung": (
+            "Der Lead hat eine Anzeige gesehen mit der Frage: Was wäre, wenn "
+            "dein Nebenverdienst dein Hauptverdienst wird? Er erwartet ein "
+            "Konzept, wie er mit LR Schritt für Schritt ein Einkommen aufbauen kann."
+        ),
+    },
+    {
+        "keywords": ["lifestyle", "monatlicher bonus", "2000", "2.000"],
+        "label": "LR Lifestyle – monatlicher Bonus",
+        "emoji": "✨",
+        "beschreibung": (
+            "Der Lead hat eine Anzeige zu LR LIFESTYLE mit bis zu 2.000€ "
+            "monatlichem Bonus gesehen. Er erwartet Infos, wie er mit LR "
+            "ein stabiles monatliches Zusatz-Einkommen aufbauen kann."
+        ),
+    },
+    {
+        "keywords": ["lr business", "lead kam", "retargeting", "optimiert"],
+        "label": "LR Business allgemein",
+        "emoji": "🏢",
+        "beschreibung": (
+            "Der Lead hat eine allgemeine LR Business-Anzeige gesehen "
+            "(inkl. Retargeting). Er erwartet Infos, wie er mit LR ein "
+            "zusätzliches Einkommen aufbauen kann."
+        ),
+    },
+    {
+        "keywords": ["lina", "voice", "akquise"],
+        "label": "LINA Voice Akquise",
+        "emoji": "🎙️",
+        "beschreibung": (
+            "Der Lead wurde über LINA Voice (KI-Akquise) generiert."
+        ),
+    },
+    {
+        "keywords": ["gesundheit", "health", "produkt", "aloe"],
+        "label": "LR Gesundheitsprodukte",
+        "emoji": "💚",
+        "beschreibung": (
+            "Der Lead hat eine Anzeige zu LR Gesundheitsprodukten gesehen."
+        ),
+    },
+]
+
+def get_funnel_info(ad_name: str, campaign_name: str, adset_name: str = "") -> dict:
+    """
+    Ordnet einen Lead einem Funnel zu basierend auf ad_name, campaign_name, adset_name.
+    Gibt dict zurück mit 'label', 'emoji', 'beschreibung'.
+    """
+    search_text = f"{ad_name} {campaign_name} {adset_name}".lower()
+
+    for funnel in FUNNEL_MAPPING:
+        for kw in funnel["keywords"]:
+            if kw in search_text:
+                return funnel
+
+    # Fallback: Kampagnenname oder Anzeigenname als Label
+    fallback_name = campaign_name or ad_name or "Werbeanzeige"
+    return {
+        "label": fallback_name,
+        "emoji": "📊",
+        "beschreibung": f"Der Lead hat eine Werbeanzeige gesehen ({fallback_name}).",
+    }
 
 # ─── WhatsApp senden ───────────────────────────────────────
 def send_whatsapp(phone: str, message: str, _skip_admin: bool = False) -> bool:
@@ -514,8 +574,9 @@ def process_lead(lead_data: dict):
 
     neues_guthaben = partner["guthaben"] - LEAD_PREIS
     new_lead_count = partner["lead_count"] + 1
-    ad_quelle      = get_ad_quelle(ad_name, campaign_name)
-    kampagnen_typ  = get_kampagnen_typ(campaign_name)
+    # Funnel-Info ermitteln
+    adset_name = lead_data.get("adset_name", "")
+    funnel = get_funnel_info(ad_name, campaign_name, adset_name)
 
     # ── Partner-Nachricht (vollständig + verständlich!) ──
     partner_msg = (
@@ -530,11 +591,18 @@ def process_lead(lead_data: dict):
         partner_msg += f"📧 *Email:* {lead_email}\n"
 
     partner_msg += (
-        f"\n💬 *Woher kommt der Lead:*\n"
-        f"📊 Kampagne: {kampagnen_typ}\n"
+        f"\n{funnel['emoji']} *Funnel:* {funnel['label']}\n"
+        f"💬 *Was der Lead gesehen hat:*\n"
+        f"{funnel['beschreibung']}\n"
+    )
+
+    partner_msg += (
+        f"\n🧠 *Technische Infos:*\n"
     )
     if campaign_name:
-        partner_msg += f"📋 {campaign_name}\n"
+        partner_msg += f"📊 Kampagne: {campaign_name}\n"
+    if adset_name:
+        partner_msg += f"📋 Anzeigengruppe: {adset_name}\n"
     if ad_name:
         partner_msg += f"🎯 Anzeige: {ad_name}\n"
 
@@ -590,10 +658,12 @@ def process_lead(lead_data: dict):
     if lead_email:
         admin_msg += f"📧 Email: {lead_email}\n"
     admin_msg += (
-        f"📊 Kampagne: {kampagnen_typ}\n"
+        f"{funnel['emoji']} Funnel: {funnel['label']}\n"
     )
     if campaign_name:
-        admin_msg += f"📋 {campaign_name}\n"
+        admin_msg += f"📊 Kampagne: {campaign_name}\n"
+    if adset_name:
+        admin_msg += f"📋 Anzeigengruppe: {adset_name}\n"
     if ad_name:
         admin_msg += f"🎯 Anzeige: {ad_name}\n"
 
@@ -863,11 +933,14 @@ def _do_poll():
                 ad_name       = row[LEAD_COL_AD_NAME].strip() if len(row) > LEAD_COL_AD_NAME else ""
                 campaign_name = row[LEAD_COL_CAMPAIGN_NAME].strip() if len(row) > LEAD_COL_CAMPAIGN_NAME else ""
 
+                adset_name    = row[LEAD_COL_ADSET_NAME].strip() if len(row) > LEAD_COL_ADSET_NAME else ""
+
                 lead_data = {
                     "lead_id":       row[0]  if len(row) > 0  else "",
                     "ad_id":         row[2]  if len(row) > 2  else "",
                     "ad_name":       ad_name,
                     "campaign_name": campaign_name,
+                    "adset_name":    adset_name,
                     "email":         extracted["email"],
                     "name":          extracted["name"],
                     "phone":         extracted["phone"],
@@ -942,13 +1015,13 @@ def validate_sheet_headers():
         return False
 
 # ─── FastAPI App ───────────────────────────────────────────
-app = FastAPI(title="Lead-Verteilungs-Service v6.4")
+app = FastAPI(title="Lead-Verteilungs-Service v6.5")
 
 @app.get("/")
 def root():
     return {
         "service":  "Lead-Verteilungs-Service",
-        "version":  "6.4",
+        "version":  "6.5",
         "status":   "running",
         "sheets": {
             "leads":   LEADS_SHEET_NAME,
@@ -961,7 +1034,7 @@ def root():
 def health():
     return {
         "status":    "ok",
-        "version":   "6.4",
+        "version":   "6.5",
         "timestamp": datetime.now(BERLIN_TZ).isoformat()
     }
 
@@ -1107,14 +1180,14 @@ def startup_event():
     # Startmeldung an Matze
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v6.4 gestartet!*\n\n"
+        f"🚀 *Lead-System v6.5 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
         f"✅ Stripe Webhook aktiv\n"
         f"✅ Zeitfenster-Links aktiv\n"
         f"✅ Admin-Infos bei jeder Aktion\n"
         f"✅ Auto-Erkennung Email/Name/Phone\n"
-        f"✅ Kampagnen-Info in Partner-Nachricht\n"
+        f"✅ Funnel-Mapping (Partner sieht was Lead gesehen hat)\n"
         f"{'✅' if header_ok else '❌'} Sheet-Header geprüft\n"
         f"✅ Lina: {LINA_WA_NUMBER}\n\n"
         f"Alles läuft! 💪",
