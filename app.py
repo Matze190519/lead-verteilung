@@ -1,10 +1,14 @@
-from fastapi import FastAPI, Request, HTTPException
+/mnt/user-data/outputs/lead-system/app_v5_2.py
+Copyfrom fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse
 import requests
 import gspread
 from google.oauth2.service_account import Credentials
 import json
 import os
+import logging
+
+logging.basicConfig(level=logging.INFO)
 import time
 from datetime import datetime, timedelta
 import pytz
@@ -68,11 +72,17 @@ COL_LOG_STATUS          = 9
 
 # ─── GOOGLE SHEETS ────────────────────────────────────────────────
 def get_sheets():
-    creds_json  = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
-    creds_dict  = json.loads(creds_json)
-    scopes      = ["https://www.googleapis.com/auth/spreadsheets"]
-    creds       = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    client      = gspread.authorize(creds)
+    """Connect to Google Sheets using gspread 6.x compatible API.
+    Uses service_account_from_dict() instead of deprecated gspread.authorize()."""
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+    if not creds_json:
+        raise ValueError("GOOGLE_CREDENTIALS_JSON ist nicht gesetzt!")
+    try:
+        creds_dict = json.loads(creds_json)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"GOOGLE_CREDENTIALS_JSON ist kein gültiges JSON: {e}")
+    # gspread 6.x: service_account_from_dict statt authorize()
+    client      = gspread.service_account_from_dict(creds_dict)
     spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
     leads_ws    = spreadsheet.worksheet(LEADS_SHEET_NAME)
     partner_ws  = spreadsheet.worksheet(PARTNER_SHEET_NAME)
@@ -558,7 +568,7 @@ async def set_zeitfenster(phone: str, wahl: str):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "5.1"}
+    return {"status": "ok", "version": "5.2"}
 
 @app.get("/status")
 async def status_check():
@@ -568,7 +578,7 @@ async def status_check():
         active  = [r for r in records if str(r.get("Status", "")).lower() == "aktiv"]
         total   = len(records)
         return {
-            "version":         "5.1",
+            "version":         "5.2",
             "active_partners": len(active),
             "total_partners":  total,
             "status":          "ok"
@@ -616,7 +626,7 @@ async def startup_event():
 
     # Startup confirmation to admin
     send_whatsapp(MATZE_PHONE,
-        f"🚀 Lead-System v5.1 gestartet!\n"
+        f"🚀 Lead-System v5.2 gestartet!\n"
         f"✅ Polling aktiv ({POLL_INTERVAL}s)\n"
         f"✅ Daily Reminders aktiv (08:00 Berlin)\n"
         f"✅ Stripe Webhook aktiv\n"
