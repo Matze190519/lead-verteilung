@@ -229,77 +229,43 @@ def smart_extract_lead_fields(field1: str, field2: str, field3: str) -> dict:
 
 FUNNEL_MAPPING = [
     {
-        "keywords": ["auto", "firmenwagen", "porsche", "bmw", "amg", "reel"],
-        "label": "LR Auto & Firmenwagen",
-        "emoji": "🚗",
-        "beschreibung": (
-            "Der Lead hat eine Anzeige zum LR Firmenwagen-Konzept gesehen. "
-            "Er erwartet Infos, wie er mit LR starten kann, um sich einen "
-            "Firmenwagen zu absoluten Sonderkonditionen zu sichern."
-        ),
-    },
-    {
-        "keywords": ["wage", "clean", "online", "garantie", "bonus"],
-        "label": "Online-Business + Bonus",
+        # Kampagne: Matze NEU 05.10.2025
+        # Anzeigen mit "Wage", "Clean" etc. = Bilder mit garantiertem Bonus
+        "keywords": ["wage", "clean", "online", "garantie", "bonus",
+                     "matze neu", "von zu hause", "nebeneinkommen"],
+        "label": "💻 Online-Business mit garantiertem Bonus",
         "emoji": "💻",
         "beschreibung": (
-            "Der Lead hat eine Anzeige zum Online-Business mit garantiertem "
-            "Bonus gesehen. Er erwartet ein klares System, wie er mit LR "
-            "online starten und sich seinen garantierten Bonus sichern kann."
+            "Bildanzeige: Online arbeiten, garantierter Bonus, von zu Hause aus."
         ),
+        "tipps": [
+            "💡 Frag, was ihn am Online-Business am meisten anspricht",
+            "💡 Erwähne den garantierten Startbonus als Einstieg",
+            "💡 Frag, ob er sich vorstellen kann, flexibel von zu Hause zu arbeiten",
+        ],
     },
     {
-        "keywords": ["nebenverdienst", "hauptverdienst", "3 fragen", "info-paket"],
-        "label": "Nebenverdienst → Hauptverdienst",
-        "emoji": "💰",
+        # Kampagne: LR Business Lead Kampagne - OPTIMIERT mit Retargeting
+        # Anzeigen = LR Auto Reels (Videos mit Autos, Lifestyle)
+        "keywords": ["lr business", "retargeting", "optimiert", "lead kam",
+                     "auto", "reel", "firmenwagen", "porsche", "bmw", "amg"],
+        "label": "🚗 LR Auto Reels (Lifestyle & Firmenwagen)",
+        "emoji": "🚗",
         "beschreibung": (
-            "Der Lead hat eine Anzeige gesehen mit der Frage: Was wäre, wenn "
-            "dein Nebenverdienst dein Hauptverdienst wird? Er erwartet ein "
-            "Konzept, wie er mit LR Schritt für Schritt ein Einkommen aufbauen kann."
+            "Video-Reel: LR Firmenwagen-Konzept, Lifestyle, Autos."
         ),
-    },
-    {
-        "keywords": ["lifestyle", "monatlicher bonus", "2000", "2.000"],
-        "label": "LR Lifestyle – monatlicher Bonus",
-        "emoji": "✨",
-        "beschreibung": (
-            "Der Lead hat eine Anzeige zu LR LIFESTYLE mit bis zu 2.000€ "
-            "monatlichem Bonus gesehen. Er erwartet Infos, wie er mit LR "
-            "ein stabiles monatliches Zusatz-Einkommen aufbauen kann."
-        ),
-    },
-    {
-        "keywords": ["lr business", "lead kam", "retargeting", "optimiert"],
-        "label": "LR Business allgemein",
-        "emoji": "🏢",
-        "beschreibung": (
-            "Der Lead hat eine allgemeine LR Business-Anzeige gesehen "
-            "(inkl. Retargeting). Er erwartet Infos, wie er mit LR ein "
-            "zusätzliches Einkommen aufbauen kann."
-        ),
-    },
-    {
-        "keywords": ["lina", "voice", "akquise"],
-        "label": "LINA Voice Akquise",
-        "emoji": "🎙️",
-        "beschreibung": (
-            "Der Lead wurde über LINA Voice (KI-Akquise) generiert."
-        ),
-    },
-    {
-        "keywords": ["gesundheit", "health", "produkt", "aloe"],
-        "label": "LR Gesundheitsprodukte",
-        "emoji": "💚",
-        "beschreibung": (
-            "Der Lead hat eine Anzeige zu LR Gesundheitsprodukten gesehen."
-        ),
+        "tipps": [
+            "💡 Frag, welches Auto ihm im Reel am besten gefallen hat",
+            "💡 Erzähl vom LR Autokonzept: Firmenwagen OHNE Anzahlung",
+            "💡 Frag, ob er sich vorstellen kann, so ein Auto über LR zu fahren",
+        ],
     },
 ]
 
 def get_funnel_info(ad_name: str, campaign_name: str, adset_name: str = "") -> dict:
     """
-    Ordnet einen Lead einem Funnel zu basierend auf ad_name, campaign_name, adset_name.
-    Gibt dict zurück mit 'label', 'emoji', 'beschreibung'.
+    Ordnet einen Interessenten einem Funnel zu basierend auf ad_name, campaign_name, adset_name.
+    Gibt dict zurück mit 'label', 'emoji', 'beschreibung', 'tipps'.
     """
     search_text = f"{ad_name} {campaign_name} {adset_name}".lower()
 
@@ -313,7 +279,8 @@ def get_funnel_info(ad_name: str, campaign_name: str, adset_name: str = "") -> d
     return {
         "label": fallback_name,
         "emoji": "📊",
-        "beschreibung": f"Der Lead hat eine Werbeanzeige gesehen ({fallback_name}).",
+        "beschreibung": f"Werbeanzeige ({fallback_name}).",
+        "tipps": ["💡 Frag einfach, was sein Interesse geweckt hat"],
     }
 
 # ─── WhatsApp senden ───────────────────────────────────────
@@ -559,7 +526,7 @@ def log_lead(lead_data: dict, partner: dict, neues_guthaben: float, wa_partner: 
     except Exception as e:
         logger.error(f"❌ Log-Fehler: {e}")
 
-# ─── Lead verarbeiten ──────────────────────────────────────
+# ─── Interessent verarbeiten ──────────────────────────────
 def process_lead(lead_data: dict):
     lead_name     = lead_data.get("name", "Unbekannt")
     lead_phone    = lead_data.get("phone", "")
@@ -569,20 +536,19 @@ def process_lead(lead_data: dict):
 
     partner = find_best_partner()
     if not partner:
-        logger.warning(f"⚠️ Kein Partner für Lead '{lead_name}'")
+        logger.warning(f"⚠️ Kein Partner für Interessent '{lead_name}'")
         return False
 
     neues_guthaben = partner["guthaben"] - LEAD_PREIS
     new_lead_count = partner["lead_count"] + 1
-    # Funnel-Info ermitteln
     adset_name = lead_data.get("adset_name", "")
     funnel = get_funnel_info(ad_name, campaign_name, adset_name)
 
-    # ── Partner-Nachricht (vollständig + verständlich!) ──
+    # ── Partner-Nachricht ──
     partner_msg = (
-        f"╔════════════════════════════════════╗\n"
-        f"║     🎯 NEUER LEAD FÜR DICH!        ║\n"
-        f"╚════════════════════════════════════╝\n\n"
+        f"╔════════════════════════════════════════╗\n"
+        f"║   🎯 NEUER INTERESSENT FÜR DICH!       ║\n"
+        f"╚════════════════════════════════════════╝\n\n"
         f"👤 *Name:* {lead_name}\n"
     )
     if lead_phone:
@@ -591,24 +557,20 @@ def process_lead(lead_data: dict):
         partner_msg += f"📧 *Email:* {lead_email}\n"
 
     partner_msg += (
-        f"\n{funnel['emoji']} *Funnel:* {funnel['label']}\n"
-        f"💬 *Was der Lead gesehen hat:*\n"
+        f"\n{funnel['emoji']} *Woher kommt der Interessent:*\n"
         f"{funnel['beschreibung']}\n"
     )
 
-    partner_msg += (
-        f"\n🧠 *Technische Infos:*\n"
-    )
-    if campaign_name:
-        partner_msg += f"📊 Kampagne: {campaign_name}\n"
-    if adset_name:
-        partner_msg += f"📋 Anzeigengruppe: {adset_name}\n"
-    if ad_name:
-        partner_msg += f"🎯 Anzeige: {ad_name}\n"
+    # Tipps zum Ansprechen
+    tipps = funnel.get('tipps', [])
+    if tipps:
+        partner_msg += f"\n📋 *So sprichst du ihn am besten an:*\n"
+        for tipp in tipps:
+            partner_msg += f"{tipp}\n"
 
     partner_msg += (
         f"\n💰 *Dein Guthaben danach:* {neues_guthaben:.2f} €\n"
-        f"📦 *Deine Leads insgesamt:* {new_lead_count}\n"
+        f"📦 *Deine Interessenten insgesamt:* {new_lead_count}\n"
     )
 
     if neues_guthaben < 15:
@@ -618,19 +580,19 @@ def process_lead(lead_data: dict):
         aufladen_text += f"💬 Oder schreib Lina: https://wa.me/{LINA_WA_NUMBER}"
         partner_msg += (
             f"\n⚠️ *Guthaben wird knapp!*\n"
-            f"Lade jetzt auf, damit du weiter Leads bekommst:\n"
+            f"Lade jetzt auf, damit du weiter Interessenten bekommst:\n"
             f"{aufladen_text}\n"
         )
 
     partner_msg += (
-        f"\n⚡ *Tipp: Ruf den Lead am besten sofort an!*\n"
+        f"\n⚡ *Ruf ihn am besten SOFORT an!*\n"
         f"Je schneller du dich meldest, desto höher die Chance."
     )
 
     # ── Senden an Partner ──
     wa_partner_ok = send_whatsapp(partner["phone"], partner_msg)
 
-    # ── Lead auch anschreiben wenn Nummer vorhanden ──
+    # ── Interessent auch anschreiben wenn Nummer vorhanden ──
     wa_lead_ok = False
     lead_wa_info = "Keine Nummer vorhanden"
     if lead_phone:
@@ -639,46 +601,38 @@ def process_lead(lead_data: dict):
             f"Vielen Dank für dein Interesse!\n"
             f"Dein persönlicher Ansprechpartner *{partner['name']}* "
             f"wird sich in Kürze bei dir melden.\n\n"
-            f"Beste Grüße,\nDein LR Lifestyle Team 🚀"
+            f"Beste Grüße,\nDein LR Lifestyle Team"
         )
         wa_lead_ok = send_whatsapp(lead_phone, lead_msg)
         if wa_lead_ok:
             lead_wa_info = "Zugestellt"
         else:
-            lead_wa_info = "Nicht zugestellt (Lead muss erst Lina schreiben)"
+            lead_wa_info = "Nicht zugestellt (Interessent muss erst Lina schreiben)"
 
-    # ── Admin-Nachricht (detailliert + verständlich!) ──
+    # ── Admin-Nachricht an Matze ──
     admin_msg = (
-        f"✅ *Neuer Lead verteilt!*\n\n"
-        f"━━━ LEAD-DATEN ━━━\n"
+        f"✅ *Neuer Interessent verteilt!*\n\n"
+        f"━━━ INTERESSENT ━━━\n"
         f"👤 Name: {lead_name}\n"
     )
     if lead_phone:
         admin_msg += f"📞 Telefon: +{lead_phone}\n"
     if lead_email:
         admin_msg += f"📧 Email: {lead_email}\n"
-    admin_msg += (
-        f"{funnel['emoji']} Funnel: {funnel['label']}\n"
-    )
-    if campaign_name:
-        admin_msg += f"📊 Kampagne: {campaign_name}\n"
-    if adset_name:
-        admin_msg += f"📋 Anzeigengruppe: {adset_name}\n"
-    if ad_name:
-        admin_msg += f"🎯 Anzeige: {ad_name}\n"
+    admin_msg += f"{funnel['emoji']} Quelle: {funnel['label']}\n"
 
     admin_msg += (
         f"\n━━━ ZUGEWIESEN AN ━━━\n"
         f"👤 Partner: {partner['name']}\n"
         f"📱 Tel: {partner['phone']}\n"
         f"💰 Guthaben: {partner['guthaben']:.2f}€ → {neues_guthaben:.2f}€\n"
-        f"📦 Leads gesamt: {new_lead_count}\n"
+        f"📦 Interessenten gesamt: {new_lead_count}\n"
     )
 
     admin_msg += (
         f"\n━━━ STATUS ━━━\n"
         f"📲 Partner-Nachricht: {'Zugestellt' if wa_partner_ok else 'NICHT zugestellt!'}\n"
-        f"📲 Lead-Nachricht: {lead_wa_info}\n"
+        f"📲 Interessent-Nachricht: {lead_wa_info}\n"
     )
 
     send_whatsapp(MATZE_PHONE, admin_msg, _skip_admin=True)
@@ -691,7 +645,7 @@ def process_lead(lead_data: dict):
     log_lead(lead_data, partner, neues_guthaben, wa_partner_ok, wa_lead_ok, final_status)
 
     logger.info(
-        f"✅ Lead '{lead_name}' → Partner '{partner['name']}' | "
+        f"✅ Interessent '{lead_name}' → Partner '{partner['name']}' | "
         f"Guthaben: {neues_guthaben:.2f}€"
     )
     return True
@@ -1015,7 +969,7 @@ def validate_sheet_headers():
         return False
 
 # ─── FastAPI App ───────────────────────────────────────────
-app = FastAPI(title="Lead-Verteilungs-Service v6.5")
+app = FastAPI(title="Lead-Verteilungs-Service v6.6")
 
 @app.get("/")
 def root():
@@ -1180,7 +1134,7 @@ def startup_event():
     # Startmeldung an Matze
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v6.5 gestartet!*\n\n"
+        f"🚀 *Lead-System v6.6 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
         f"✅ Stripe Webhook aktiv\n"
