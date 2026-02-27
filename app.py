@@ -1,5 +1,5 @@
 # ============================================================
-# Lead-Verteilungs-Service v6.7 FINAL
+# Lead-Verteilungs-Service v6.8
 # ============================================================
 # Basis: v4.9 (stabil) + v6.3 + alle Fixes
 # ============================================================
@@ -274,34 +274,50 @@ def get_funnel_info(ad_name: str, campaign_name: str, adset_name: str = "") -> d
     """
     Ordnet einen Interessenten einem Funnel zu basierend auf ad_name, campaign_name, adset_name.
     Gibt dict zurück mit 'label', 'emoji', 'beschreibung', 'tipps'.
+    
+    Erkenntnisse aus Sheet-Analyse (1125 Leads):
+    - ad_name="1002025_Reel_Mathias Porsche" + campaign="Matze NEU" → Auto Reels ✅
+    - ad_name="1100225_neue Wage-Clean – Kopie 2" + campaign="Matze NEU" → Bild ✅
+    - ad_name="Neue Anzeige für Leads" + campaign="LR Business Lead Kampagne - OPTIMIERT mit Retargeting" → Auto Reels!
+    - ad_name="Neue Anzeige für Leads" + campaign="Neue Kampagne für Leads" → Bild (Standard)
+    
+    ACHTUNG: Meta ordnet bei Retargeting manchmal Leads der falschen Kampagne zu
+    (First-Touch Attribution). Dagegen können wir nichts tun.
     """
     ad_lower = ad_name.lower().strip() if ad_name else ""
     camp_lower = campaign_name.lower().strip() if campaign_name else ""
     adset_lower = adset_name.lower().strip() if adset_name else ""
 
-    # SCHRITT 1: Zuerst nur ad_name prüfen (Anzeigenname ist am genauesten)
-    # Auto Reels: ad_name enthält "auto", "reel", "firmenwagen", "porsche", "bmw", "amg"
-    auto_keywords = ["auto", "reel", "firmenwagen", "porsche", "bmw", "amg"]
-    if any(kw in ad_lower for kw in auto_keywords):
+    # SCHRITT 1: ad_name enthält eindeutige Auto-Keywords → Auto Reels
+    auto_ad_keywords = ["reel", "porsche", "bmw", "amg", "firmenwagen"]
+    if any(kw in ad_lower for kw in auto_ad_keywords):
         return FUNNEL_MAPPING[1]  # Auto Reels
 
-    # Bild-Kampagne: ad_name enthält "wage", "clean", "bonus", "3 fragen", "schritt"
-    bild_keywords = ["wage", "clean", "bonus", "3 fragen", "schritt",
-                     "nebenverdienst", "hauptverdienst", "online"]
-    if any(kw in ad_lower for kw in bild_keywords):
+    # SCHRITT 2: ad_name enthält eindeutige Bild-Keywords → Bild-Kampagne
+    bild_ad_keywords = ["wage", "clean", "bonus", "3 fragen", "schritt",
+                        "nebenverdienst", "hauptverdienst"]
+    if any(kw in ad_lower for kw in bild_ad_keywords):
         return FUNNEL_MAPPING[0]  # Bild-Kampagne
 
-    # SCHRITT 2: Kampagne "Matze NEU" = immer Bild-Kampagne
+    # SCHRITT 3: ad_name ist generisch ("Neue Anzeige für Leads" etc.)
+    # → Kampagne entscheidet!
+    # "LR Business Lead Kampagne - OPTIMIERT mit Retargeting" = Auto Reels Kampagne
+    if "retargeting" in camp_lower or "lr business" in camp_lower:
+        return FUNNEL_MAPPING[1]  # Auto Reels (diese Kampagne IST die Auto-Reel-Kampagne)
+
+    # SCHRITT 4: Kampagne "Matze NEU" mit generischem ad_name → Bild-Kampagne
+    # (Die meisten Matze NEU Leads sind Bild-Kampagne)
     if "matze neu" in camp_lower:
         return FUNNEL_MAPPING[0]  # Bild-Kampagne
 
-    # SCHRITT 3: Retargeting-Kampagne OHNE Auto-Keywords im ad_name
-    # = Bild-Kampagne (weil Retargeting-Kampagne BEIDES enthält)
-    if "retargeting" in camp_lower or "optimiert" in camp_lower or "lr business" in camp_lower:
-        # Wenn ad_name keine Auto-Keywords hat, ist es eine Bildanzeige
-        return FUNNEL_MAPPING[0]  # Bild-Kampagne (Default für Retargeting)
+    # SCHRITT 5: Andere bekannte Kampagnen
+    if "outcome_leads" in camp_lower or "neue kampagne" in camp_lower:
+        return FUNNEL_MAPPING[0]  # Bild-Kampagne (Standard)
 
-    # SCHRITT 4: Fallback
+    if "lina voice" in camp_lower:
+        return FUNNEL_MAPPING[0]  # Bild-Kampagne
+
+    # SCHRITT 6: Fallback – wenn gar nichts passt
     fallback_name = campaign_name or ad_name or "Werbeanzeige"
     return {
         "label": fallback_name,
@@ -619,22 +635,12 @@ def process_lead(lead_data: dict):
     # ── Senden an Partner ──
     wa_partner_ok = send_whatsapp(partner["phone"], partner_msg)
 
-    # ── Interessent auch anschreiben wenn Nummer vorhanden ──
+    # ── Interessent-Nachricht DEAKTIVIERT ──
+    # Interessent schreibt Matze direkt auf WhatsApp (01715060008).
+    # Lina hat kein 24h-Fenster zum Interessenten offen.
+    # → Nachricht an Interessent bringt nichts und riskiert Meta-Spam-Warnung.
     wa_lead_ok = False
-    lead_wa_info = "Keine Nummer vorhanden"
-    if lead_phone:
-        lead_msg = (
-            f"Hallo {lead_name}! 👋\n\n"
-            f"Vielen Dank für dein Interesse!\n"
-            f"Dein persönlicher Ansprechpartner *{partner['name']}* "
-            f"wird sich in Kürze bei dir melden.\n\n"
-            f"Beste Grüße,\nDein LR Lifestyle Team"
-        )
-        wa_lead_ok = send_whatsapp(lead_phone, lead_msg)
-        if wa_lead_ok:
-            lead_wa_info = "Zugestellt"
-        else:
-            lead_wa_info = "Nicht zugestellt (Interessent muss erst Lina schreiben)"
+    lead_wa_info = "Deaktiviert (Interessent kontaktiert Matze direkt)"
 
     # ── Admin-Nachricht an Matze ──
     admin_msg = (
@@ -996,7 +1002,7 @@ def validate_sheet_headers():
         return False
 
 # ─── FastAPI App ───────────────────────────────────────────
-app = FastAPI(title="Lead-Verteilungs-Service v6.7")
+app = FastAPI(title="Lead-Verteilungs-Service v6.8")
 
 @app.get("/")
 def root():
@@ -1161,7 +1167,7 @@ def startup_event():
     # Startmeldung an Matze
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v6.7 gestartet!*\n\n"
+        f"🚀 *Lead-System v6.8 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
         f"✅ Stripe Webhook aktiv\n"
