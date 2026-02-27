@@ -1,5 +1,5 @@
 # ============================================================
-# Lead-Verteilungs-Service v6.8
+# Lead-Verteilungs-Service v6.9
 # ============================================================
 # Basis: v4.9 (stabil) + v6.3 + alle Fixes
 # ============================================================
@@ -95,18 +95,25 @@ ZEITFENSTER = {
     "abend":      (17, 22),
 }
 ZEITFENSTER_TEXT = {
-    "ganztag":    "Ganztag (08–22 Uhr)",
+    "ganztag":    "Ganztag (rund um die Uhr)",
     "vormittag":  "Vormittag (08–12 Uhr)",
     "nachmittag": "Nachmittag (12–17 Uhr)",
     "abend":      "Abend (17–22 Uhr)",
 }
 
 def partner_ist_verfuegbar(zeitfenster: str) -> bool:
+    """Prüft ob ein Partner gerade Leads empfangen soll.
+    Nachts (22-08 Uhr): ALLE Partner bekommen Leads, egal welches Zeitfenster.
+    Tagsueber (08-22 Uhr): Zeitfenster-Logik greift normal.
+    """
+    now_hour = datetime.now(BERLIN_TZ).hour
+    # Nachts (22-08): Alle Partner verfuegbar - Leads morgens auf dem Handy
+    if now_hour >= 22 or now_hour < 8:
+        return True
     zf = zeitfenster.strip().lower() if zeitfenster else "ganztag"
     fenster = ZEITFENSTER.get(zf, None)
     if fenster is None:
         return True
-    now_hour = datetime.now(BERLIN_TZ).hour
     start, end = fenster
     return start <= now_hour < end
 
@@ -642,33 +649,16 @@ def process_lead(lead_data: dict):
     wa_lead_ok = False
     lead_wa_info = "Deaktiviert (Interessent kontaktiert Matze direkt)"
 
-    # ── Admin-Nachricht an Matze ──
-    admin_msg = (
-        f"✅ *Neuer Interessent verteilt!*\n\n"
-        f"━━━ INTERESSENT ━━━\n"
-        f"👤 Name: {lead_name}\n"
-    )
-    if lead_phone:
-        admin_msg += f"📞 Telefon: +{lead_phone}\n"
-    if lead_email:
-        admin_msg += f"📧 Email: {lead_email}\n"
-    admin_msg += f"{funnel['emoji']} Quelle: {funnel['label']}\n"
-
-    admin_msg += (
-        f"\n━━━ ZUGEWIESEN AN ━━━\n"
-        f"👤 Partner: {partner['name']}\n"
-        f"📱 Tel: {partner['phone']}\n"
-        f"💰 Guthaben: {partner['guthaben']:.2f}€ → {neues_guthaben:.2f}€\n"
-        f"📦 Interessenten gesamt: {new_lead_count}\n"
-    )
-
-    admin_msg += (
-        f"\n━━━ STATUS ━━━\n"
-        f"📲 Partner-Nachricht: {'Zugestellt' if wa_partner_ok else 'NICHT zugestellt!'}\n"
-        f"📲 Interessent-Nachricht: {lead_wa_info}\n"
-    )
-
-    send_whatsapp(MATZE_PHONE, admin_msg, _skip_admin=True)
+    # ── Admin-Nachricht an Matze (kurz!) ──
+    # Nur bei Problemen ausfuehrlich, sonst kompakt
+    if not wa_partner_ok:
+        admin_msg = (
+            f"⚠️ *Lead verteilt aber NICHT zugestellt!*\n"
+            f"👤 {lead_name} → {partner['name']}\n"
+            f"📱 Partner {partner['phone']} hat kein 24h-Fenster offen!\n"
+            f"👉 Partner soll Lina schreiben: https://wa.me/{LINA_WA_NUMBER}"
+        )
+        send_whatsapp(MATZE_PHONE, admin_msg, _skip_admin=True)
 
     # Sheet updaten
     update_partner(partner["row_index"], neues_guthaben, new_lead_count)
@@ -728,7 +718,7 @@ def process_stripe_payment(session: dict):
                     f"💳 *Neues Guthaben:* {new_guthaben:.2f} €\n"
                     f"⏰ *Dein Zeitfenster:* {existing['zeitfenster']}\n\n"
                     f"Zeitfenster ändern? Einfach antippen:\n"
-                    f"1️⃣ Ganztag (08–22h): {link_g}\n"
+                    f"1️⃣ Ganztag (rund um die Uhr): {link_g}\n"
                     f"2️⃣ Vormittag (08–12h): {link_v}\n"
                     f"3️⃣ Nachmittag (12–17h): {link_n}\n"
                     f"4️⃣ Abend (17–22h): {link_a}\n\n"
@@ -768,7 +758,7 @@ def process_stripe_payment(session: dict):
                     f"👉 https://wa.me/{LINA_WA_NUMBER}\n"
                     f"(Damit du Leads per WhatsApp empfangen kannst)\n\n"
                     f"*Schritt 2:* Wähle dein Zeitfenster für Leads:\n"
-                    f"1️⃣ Ganztag (08–22h): {APP_URL}/zeitfenster?phone={partner_phone}&wahl=Ganztag\n"
+                    f"1️⃣ Ganztag (rund um die Uhr): {APP_URL}/zeitfenster?phone={partner_phone}&wahl=Ganztag\n"
                     f"2️⃣ Vormittag (08–12h): {APP_URL}/zeitfenster?phone={partner_phone}&wahl=Vormittag\n"
                     f"3️⃣ Nachmittag (12–17h): {APP_URL}/zeitfenster?phone={partner_phone}&wahl=Nachmittag\n"
                     f"4️⃣ Abend (17–22h): {APP_URL}/zeitfenster?phone={partner_phone}&wahl=Abend\n\n"
@@ -836,17 +826,19 @@ def send_daily_reminders():
                 aufladen_text += f"\n💬 Oder schreib Lina: https://wa.me/{LINA_WA_NUMBER}"
 
             msg = (
-                f"🚨🚨🚨 *GUTEN MORGEN {name.upper()}!* 🚨🚨🚨\n\n"
-                f"Hier ist dein tägliches Update:\n\n"
+                f"*Guten Morgen {name}!*\n\n"
+                f"👉 *WICHTIG: Schreib jetzt kurz Lina, damit du heute Leads bekommst:*\n"
+                f"https://wa.me/{LINA_WA_NUMBER}\n"
+                f"(Einfach kurz \"Hi\" schreiben reicht!)\n\n"
                 f"{guthaben_info}\n"
-                f"⏰ *Zeitfenster:* {zf_text}\n"
+                f"⏰ *Zeitfenster:* {zf_text}"
                 f"{aufladen_text}\n\n"
-                f"Zeitfenster ändern? Einfach antippen:\n"
-                f"1️⃣ Ganztag (08–22h): {link_g}\n"
-                f"2️⃣ Vormittag (08–12h): {link_v}\n"
-                f"3️⃣ Nachmittag (12–17h): {link_n}\n"
-                f"4️⃣ Abend (17–22h): {link_a}\n\n"
-                f"Einen erfolgreichen Tag! 💪🚀"
+                f"Zeitfenster aendern? Einfach antippen:\n"
+                f"1️⃣ Ganztag: {link_g}\n"
+                f"2️⃣ Vormittag (08-12h): {link_v}\n"
+                f"3️⃣ Nachmittag (12-17h): {link_n}\n"
+                f"4️⃣ Abend (17-22h): {link_a}\n\n"
+                f"Viel Erfolg heute! 💪"
             )
 
             ok = send_whatsapp(phone, msg)
@@ -1002,7 +994,7 @@ def validate_sheet_headers():
         return False
 
 # ─── FastAPI App ───────────────────────────────────────────
-app = FastAPI(title="Lead-Verteilungs-Service v6.8")
+app = FastAPI(title="Lead-Verteilungs-Service v6.9")
 
 @app.get("/")
 def root():
@@ -1167,7 +1159,7 @@ def startup_event():
     # Startmeldung an Matze
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v6.8 gestartet!*\n\n"
+        f"🚀 *Lead-System v6.9 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
         f"✅ Stripe Webhook aktiv\n"
