@@ -1,5 +1,5 @@
 # ============================================================
-# Lead-Verteilungs-Service v6.9
+# Lead-Verteilungs-Service v7.0
 # ============================================================
 # Basis: v4.9 (stabil) + v6.3 + alle Fixes
 # ============================================================
@@ -649,12 +649,22 @@ def process_lead(lead_data: dict):
     wa_lead_ok = False
     lead_wa_info = "Deaktiviert (Interessent kontaktiert Matze direkt)"
 
-    # ── Admin-Nachricht an Matze (kurz!) ──
-    # Nur bei Problemen ausfuehrlich, sonst kompakt
-    if not wa_partner_ok:
+    # ── Admin-Nachricht an Matze ──
+    if wa_partner_ok:
+        admin_msg = (
+            f"✅ *Lead verteilt*\n"
+            f"👤 {lead_name} → {partner['name']}\n"
+            f"📞 +{lead_phone}\n"
+            f"{funnel['emoji']} {funnel['name']}\n"
+            f"💰 Guthaben: {neues_guthaben:.2f}€"
+        )
+        send_whatsapp(MATZE_PHONE, admin_msg, _skip_admin=True)
+    else:
         admin_msg = (
             f"⚠️ *Lead verteilt aber NICHT zugestellt!*\n"
             f"👤 {lead_name} → {partner['name']}\n"
+            f"📞 +{lead_phone}\n"
+            f"{funnel['emoji']} {funnel['name']}\n"
             f"📱 Partner {partner['phone']} hat kein 24h-Fenster offen!\n"
             f"👉 Partner soll Lina schreiben: https://wa.me/{LINA_WA_NUMBER}"
         )
