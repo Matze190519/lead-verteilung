@@ -650,25 +650,29 @@ def process_lead(lead_data: dict):
     lead_wa_info = "Deaktiviert (Interessent kontaktiert Matze direkt)"
 
     # ── Admin-Nachricht an Matze ──
-    if wa_partner_ok:
-        admin_msg = (
-            f"✅ *Lead verteilt*\n"
-            f"👤 {lead_name} → {partner['name']}\n"
-            f"📞 +{lead_phone}\n"
-            f"{funnel['emoji']} {funnel['name']}\n"
-            f"💰 Guthaben: {neues_guthaben:.2f}€"
-        )
-        send_whatsapp(MATZE_PHONE, admin_msg, _skip_admin=True)
-    else:
-        admin_msg = (
-            f"⚠️ *Lead verteilt aber NICHT zugestellt!*\n"
-            f"👤 {lead_name} → {partner['name']}\n"
-            f"📞 +{lead_phone}\n"
-            f"{funnel['emoji']} {funnel['name']}\n"
-            f"📱 Partner {partner['phone']} hat kein 24h-Fenster offen!\n"
-            f"👉 Partner soll Lina schreiben: https://wa.me/{LINA_WA_NUMBER}"
-        )
-        send_whatsapp(MATZE_PHONE, admin_msg, _skip_admin=True)
+    admin_msg = (
+        f"✅ *Neuer Interessent verteilt!*\n\n"
+        f"━━━ INTERESSENT ━━━\n"
+        f"👤 Name: {lead_name}\n"
+    )
+    if lead_phone:
+        admin_msg += f"📞 Telefon: +{lead_phone}\n"
+    if lead_email:
+        admin_msg += f"📧 Email: {lead_email}\n"
+    admin_msg += f"{funnel['emoji']} Quelle: {funnel['label']}\n"
+    admin_msg += (
+        f"\n━━━ ZUGEWIESEN AN ━━━\n"
+        f"👤 Partner: {partner['name']}\n"
+        f"📱 Tel: {partner['phone']}\n"
+        f"💰 Guthaben: {partner['guthaben']:.2f}€ → {neues_guthaben:.2f}€\n"
+        f"📦 Interessenten gesamt: {new_lead_count}\n"
+    )
+    admin_msg += (
+        f"\n━━━ STATUS ━━━\n"
+        f"📲 Partner-Nachricht: {'Zugestellt' if wa_partner_ok else 'NICHT zugestellt!'}\n"
+        f"📲 Interessent-Nachricht: {lead_wa_info}\n"
+    )
+    send_whatsapp(MATZE_PHONE, admin_msg, _skip_admin=True)
 
     # Sheet updaten
     update_partner(partner["row_index"], neues_guthaben, new_lead_count)
