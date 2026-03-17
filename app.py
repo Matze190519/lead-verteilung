@@ -54,7 +54,7 @@ LINA_WA_NUMBER        = os.getenv("LINA_WA_NUMBER", "4915170605019")
 STRIPE_PAYMENT_LINK   = os.getenv("STRIPE_PAYMENT_LINK", "")
 
 # ─── Konstanten ────────────────────────────────────────────
-LEAD_PREIS     = 5.0
+LEAD_PREIS     = 3.125
 POLL_INTERVAL  = 60
 BERLIN_TZ      = pytz.timezone("Europe/Berlin")
 
