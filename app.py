@@ -1,5 +1,5 @@
 # ============================================================
-# Lead-Verteilungs-Service v7.1
+# Lead-Verteilungs-Service v7.2
 # ============================================================
 # Basis: v4.9 (stabil) + v6.3 + alle Fixes
 # ============================================================
@@ -484,7 +484,9 @@ def update_partner(row_index: int, new_guthaben: float, lead_count: int):
     try:
         ws = get_partner_sheet()
         now_str = datetime.now(BERLIN_TZ).strftime("%Y-%m-%d %H:%M:%S")
-        ws.update_cell(row_index, COL_GUTHABEN, round(new_guthaben, 2))
+        # Komma als Dezimaltrennzeichen für deutsche Google-Sheet-Locale
+        guthaben_str = str(round(new_guthaben, 2)).replace(".", ",")
+        ws.update_cell(row_index, COL_GUTHABEN, guthaben_str)
         ws.update_cell(row_index, COL_LETZTER,  now_str)
         ws.update_cell(row_index, COL_LEADS,    lead_count)
         if new_guthaben < LEAD_PREIS:
@@ -501,7 +503,8 @@ def update_partner_guthaben(email: str, betrag: float) -> dict:
         for p in all_records:
             if p["email"] == email.lower().strip():
                 new_g = p["guthaben"] + betrag
-                ws.update_cell(p["row_index"], COL_GUTHABEN, round(new_g, 2))
+                guthaben_str = str(round(new_g, 2)).replace(".", ",")
+                ws.update_cell(p["row_index"], COL_GUTHABEN, guthaben_str)
                 ws.update_cell(p["row_index"], COL_STATUS,   "Aktiv")
                 logger.info(f"✅ Guthaben {email}: +{betrag}€ → {new_g}€")
                 p["guthaben"] = new_g
@@ -541,10 +544,11 @@ def add_new_partner(name: str, email: str, phone_raw: str, guthaben: float):
         ws = get_partner_sheet()
         phone = normalize_phone(phone_raw)
         now_str = datetime.now(BERLIN_TZ).strftime("%Y-%m-%d %H:%M:%S")
+        guthaben_str = str(round(guthaben, 2)).replace(".", ",")
         ws.append_row([
             name,
             phone,
-            guthaben,
+            guthaben_str,
             0,
             now_str,
             "Aktiv",
@@ -1028,7 +1032,7 @@ app = FastAPI(title="Lead-Verteilungs-Service v6.9")
 def root():
     return {
         "service":  "Lead-Verteilungs-Service",
-        "version":  "7.1",
+        "version":  "7.2",
         "status":   "running",
         "sheets": {
             "leads":   LEADS_SHEET_NAME,
@@ -1041,7 +1045,7 @@ def root():
 def health():
     return {
         "status":    "ok",
-        "version":   "7.1",
+        "version":   "7.2",
         "timestamp": datetime.now(BERLIN_TZ).isoformat()
     }
 
@@ -1052,7 +1056,7 @@ def status_check():
         aktive = [p for p in all_records if p["status"].strip().lower() == "aktiv"]
         return {
             "status": "ok",
-            "version": "7.1",
+            "version": "7.2",
             "partner_gesamt": len(all_records),
             "partner_aktiv": len(aktive),
             "timestamp": datetime.now(BERLIN_TZ).isoformat()
@@ -1192,7 +1196,7 @@ def startup_event():
     # Startmeldung an Matze
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v7.1 gestartet!*\n\n"
+        f"🚀 *Lead-System v7.2 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
         f"✅ Stripe Webhook aktiv\n"
