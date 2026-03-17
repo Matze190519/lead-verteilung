@@ -1,5 +1,5 @@
 # ============================================================
-# Lead-Verteilungs-Service v7.0
+# Lead-Verteilungs-Service v7.1
 # ============================================================
 # Basis: v4.9 (stabil) + v6.3 + alle Fixes
 # ============================================================
@@ -826,7 +826,7 @@ def send_daily_reminders():
             link_a = f"{APP_URL}/zeitfenster?phone={phone}&wahl=Abend"
 
             # Guthaben-Warnung
-            if guthaben < 5:
+            if guthaben < LEAD_PREIS:
                 guthaben_info = f"🔴 *ACHTUNG: Guthaben aufgebraucht!* ({guthaben:.2f}€)\nDu bekommst KEINE Leads mehr!"
             elif guthaben < 15:
                 guthaben_info = f"🟡 *Guthaben wird knapp:* {guthaben:.2f}€\nNoch {int(guthaben / LEAD_PREIS)} Leads möglich."
@@ -834,7 +834,7 @@ def send_daily_reminders():
                 guthaben_info = f"🟢 *Guthaben:* {guthaben:.2f}€\nNoch {int(guthaben / LEAD_PREIS)} Leads möglich."
 
             aufladen_text = ""
-            if guthaben < 30:
+            if guthaben < LEAD_PREIS * 10:
                 if STRIPE_PAYMENT_LINK:
                     aufladen_text = f"\n💳 Jetzt aufladen: {STRIPE_PAYMENT_LINK}"
                 aufladen_text += f"\n💬 Oder schreib Lina: https://wa.me/{LINA_WA_NUMBER}"
@@ -984,6 +984,20 @@ def polling_loop():
                 )
                 consecutive_errors = 0
         time.sleep(POLL_INTERVAL)
+
+# ─── Self-Ping Keep-Alive (verhindert Render Sleep) ──────
+def keep_alive_loop():
+    """Pingt den eigenen /health Endpoint alle 10 Minuten,
+    damit Render den Service nicht schlafen legt.
+    So feuert der APScheduler zuverlässig um 08:00."""
+    logger.info("💓 Keep-Alive gestartet (alle 600s)")
+    while True:
+        try:
+            resp = requests.get(f"{APP_URL}/health", timeout=10)
+            logger.debug(f"💓 Keep-Alive Ping: {resp.status_code}")
+        except Exception as e:
+            logger.warning(f"💓 Keep-Alive Fehler: {e}")
+        time.sleep(600)  # alle 10 Minuten
 
 # ─── Sheet-Header Validierung ─────────────────────────────
 def validate_sheet_headers():
@@ -1170,10 +1184,15 @@ def startup_event():
     poll_thread.start()
     logger.info("🔄 Polling-Thread gestartet")
 
+    # Keep-Alive-Thread (verhindert Render Sleep)
+    alive_thread = threading.Thread(target=keep_alive_loop, daemon=True)
+    alive_thread.start()
+    logger.info("💓 Keep-Alive-Thread gestartet")
+
     # Startmeldung an Matze
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v6.9 gestartet!*\n\n"
+        f"🚀 *Lead-System v7.1 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
         f"✅ Stripe Webhook aktiv\n"
