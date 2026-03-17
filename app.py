@@ -1028,7 +1028,7 @@ app = FastAPI(title="Lead-Verteilungs-Service v6.9")
 def root():
     return {
         "service":  "Lead-Verteilungs-Service",
-        "version":  "6.5",
+        "version":  "7.1",
         "status":   "running",
         "sheets": {
             "leads":   LEADS_SHEET_NAME,
@@ -1041,7 +1041,7 @@ def root():
 def health():
     return {
         "status":    "ok",
-        "version":   "6.5",
+        "version":   "7.1",
         "timestamp": datetime.now(BERLIN_TZ).isoformat()
     }
 
@@ -1052,7 +1052,7 @@ def status_check():
         aktive = [p for p in all_records if p["status"].strip().lower() == "aktiv"]
         return {
             "status": "ok",
-            "version": "6.4",
+            "version": "7.1",
             "partner_gesamt": len(all_records),
             "partner_aktiv": len(aktive),
             "timestamp": datetime.now(BERLIN_TZ).isoformat()
