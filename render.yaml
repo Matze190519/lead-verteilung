@@ -21,6 +21,6 @@ services:
       - key: FB_ACCESS_TOKEN
         sync: false
       - key: LEAD_PREIS
-        value: "5"
+        value: "3.13"
     healthCheckPath: /health
     plan: free
