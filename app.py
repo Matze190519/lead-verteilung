@@ -1,5 +1,5 @@
 # ============================================================
-# Lead-Verteilungs-Service v7.5
+# Lead-Verteilungs-Service v7.6
 # ============================================================
 # Basis: v4.9 (stabil) + v6.3 + alle Fixes
 # ============================================================
@@ -406,7 +406,9 @@ def get_all_partner_records():
             ws = get_partner_sheet()
             records = ws.get_all_records(value_render_option='UNFORMATTED_VALUE')
             result = []
-            for i, row in enumerate(records, start=2):
+            for i, raw_row in enumerate(records, start=2):
+                # Strip header keys to avoid trailing space issues
+                row = {k.strip(): v for k, v in raw_row.items()}
                 try:
                     guthaben_raw = row.get("Guthaben_Euro", 0)
                     # UNFORMATTED_VALUE gibt Zahlen direkt als float/int zurück
@@ -1217,7 +1219,7 @@ def startup_event():
     # Startmeldung an Matze
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v7.5 gestartet!*\n\n"
+        f"🚀 *Lead-System v7.6 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
         f"✅ Stripe Webhook aktiv\n"
