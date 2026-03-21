@@ -1,5 +1,5 @@
 # ============================================================
-# Lead-Verteilungs-Service v7.3
+# Lead-Verteilungs-Service v7.4
 # ============================================================
 # Basis: v4.9 (stabil) + v6.3 + alle Fixes
 # ============================================================
@@ -418,7 +418,7 @@ def get_all_partner_records():
                     result.append({
                         "row_index":   i,
                         "name":        str(row.get("Name", "")).strip(),
-                        "phone":       str(row.get("Telefon", "")).strip(),
+                        "phone":       str(int(row.get("Telefon", 0))) if isinstance(row.get("Telefon", ""), (int, float)) else str(row.get("Telefon", "")).strip(),
                         "guthaben":    guthaben,
                         "email":       str(row.get("Email", "")).strip().lower(),
                         "status":      str(row.get("Status", "Aktiv")).strip(),
@@ -1032,7 +1032,7 @@ app = FastAPI(title="Lead-Verteilungs-Service v6.9")
 def root():
     return {
         "service":  "Lead-Verteilungs-Service",
-        "version":  "7.3",
+        "version":  "7.4",
         "status":   "running",
         "sheets": {
             "leads":   LEADS_SHEET_NAME,
@@ -1045,7 +1045,7 @@ def root():
 def health():
     return {
         "status":    "ok",
-        "version":   "7.3",
+        "version":   "7.4",
         "timestamp": datetime.now(BERLIN_TZ).isoformat()
     }
 
@@ -1056,7 +1056,7 @@ def status_check():
         aktive = [p for p in all_records if p["status"].strip().lower() == "aktiv"]
         return {
             "status": "ok",
-            "version": "7.3",
+            "version": "7.4",
             "partner_gesamt": len(all_records),
             "partner_aktiv": len(aktive),
             "timestamp": datetime.now(BERLIN_TZ).isoformat()
@@ -1196,7 +1196,7 @@ def startup_event():
     # Startmeldung an Matze
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v7.3 gestartet!*\n\n"
+        f"🚀 *Lead-System v7.4 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
         f"✅ Stripe Webhook aktiv\n"
