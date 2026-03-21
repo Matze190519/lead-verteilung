@@ -1064,6 +1064,27 @@ def status_check():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+@app.get("/debug-headers")
+def debug_headers():
+    try:
+        ws = get_partner_sheet()
+        headers = ws.row_values(1)
+        # Get raw row 20 values
+        row9 = ws.row_values(9)
+        row20 = ws.row_values(20)
+        # Also get via get_all_records
+        records = ws.get_all_records(value_render_option='UNFORMATTED_VALUE')
+        beyer_records = [r for r in records if 'Beyer' in str(r.get('Name', ''))]
+        return {
+            "headers": headers,
+            "headers_repr": [repr(h) for h in headers],
+            "row9_raw": row9,
+            "row20_raw": row20,
+            "beyer_records": beyer_records,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/partner")
 def list_partners():
     try:
