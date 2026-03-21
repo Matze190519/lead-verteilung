@@ -1,5 +1,5 @@
 # ============================================================
-# Lead-Verteilungs-Service v7.6
+# Lead-Verteilungs-Service v7.7
 # ============================================================
 # Basis: v4.9 (stabil) + v6.3 + alle Fixes
 # ============================================================
@@ -464,23 +464,33 @@ def find_best_partner():
     ]
 
     if not verfuegbar:
-        logger.info("⏰ Kein Partner im Zeitfenster – Fallback auf alle aktiven")
-        verfuegbar = [
+        # Prüfe ob es aktive Partner MIT Guthaben gibt, die nur nicht im Zeitfenster sind
+        aktive_mit_guthaben = [
             p for p in all_records
             if p["status"].strip().lower() == "aktiv"
             and p["guthaben"] >= LEAD_PREIS
         ]
-
-    if not verfuegbar:
-        logger.warning("🚨 Kein aktiver Partner mit Guthaben!")
-        send_whatsapp(
-            MATZE_PHONE,
-            "🚨 *Kein Partner verfügbar!*\n\n"
-            "Keiner deiner aktiven Partner hat genug Guthaben.\n"
-            "Bitte Partner zum Aufladen auffordern!",
-            _skip_admin=True
-        )
-        return None
+        if aktive_mit_guthaben:
+            logger.info("⏰ Partner vorhanden, aber keiner im aktuellen Zeitfenster – Lead wird NICHT verteilt")
+            namen = ', '.join([p['name'] for p in aktive_mit_guthaben])
+            send_whatsapp(
+                MATZE_PHONE,
+                f"⏰ *Lead nicht verteilt – Zeitfenster!*\n\n"
+                f"Es gibt aktive Partner ({namen}), aber keiner ist gerade im Zeitfenster.\n"
+                f"Der Lead wird beim nächsten Polling erneut geprüft.",
+                _skip_admin=True
+            )
+            return None
+        else:
+            logger.warning("🚨 Kein aktiver Partner mit Guthaben!")
+            send_whatsapp(
+                MATZE_PHONE,
+                "🚨 *Kein Partner verfügbar!*\n\n"
+                "Keiner deiner aktiven Partner hat genug Guthaben.\n"
+                "Bitte Partner zum Aufladen auffordern!",
+                _skip_admin=True
+            )
+            return None
 
     return sorted(verfuegbar, key=lambda p: (p["last_lead"] or "0000"))[0]
 
@@ -1219,7 +1229,7 @@ def startup_event():
     # Startmeldung an Matze
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v7.6 gestartet!*\n\n"
+        f"🚀 *Lead-System v7.7 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
         f"✅ Stripe Webhook aktiv\n"
