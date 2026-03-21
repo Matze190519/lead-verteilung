@@ -1,5 +1,5 @@
 # ============================================================
-# Lead-Verteilungs-Service v7.4
+# Lead-Verteilungs-Service v7.5
 # ============================================================
 # Basis: v4.9 (stabil) + v6.3 + alle Fixes
 # ============================================================
@@ -520,7 +520,7 @@ def update_zeitfenster_im_sheet(phone: str, zeitfenster: str) -> bool:
         all_records = get_all_partner_records()
         ws = get_partner_sheet()
         for p in all_records:
-            if p["phone"] == phone.strip():
+            if p["phone"] == phone.strip() and p["status"].strip().lower() == "aktiv":
                 ws.update_cell(p["row_index"], COL_ZEITFENSTER, zeitfenster)
                 logger.info(f"✅ Zeitfenster {phone} → {zeitfenster}")
                 # Admin informieren
@@ -1032,7 +1032,7 @@ app = FastAPI(title="Lead-Verteilungs-Service v6.9")
 def root():
     return {
         "service":  "Lead-Verteilungs-Service",
-        "version":  "7.4",
+        "version":  "7.5",
         "status":   "running",
         "sheets": {
             "leads":   LEADS_SHEET_NAME,
@@ -1045,7 +1045,7 @@ def root():
 def health():
     return {
         "status":    "ok",
-        "version":   "7.4",
+        "version":   "7.5",
         "timestamp": datetime.now(BERLIN_TZ).isoformat()
     }
 
@@ -1056,7 +1056,7 @@ def status_check():
         aktive = [p for p in all_records if p["status"].strip().lower() == "aktiv"]
         return {
             "status": "ok",
-            "version": "7.4",
+            "version": "7.5",
             "partner_gesamt": len(all_records),
             "partner_aktiv": len(aktive),
             "timestamp": datetime.now(BERLIN_TZ).isoformat()
@@ -1196,7 +1196,7 @@ def startup_event():
     # Startmeldung an Matze
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v7.4 gestartet!*\n\n"
+        f"🚀 *Lead-System v7.5 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
         f"✅ Stripe Webhook aktiv\n"
