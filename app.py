@@ -1,5 +1,5 @@
 # ============================================================
-# Lead-Verteilungs-Service v7.7
+# Lead-Verteilungs-Service v7.8
 # ============================================================
 # Basis: v4.9 (stabil) + v6.3 + alle Fixes
 # ============================================================
@@ -913,6 +913,150 @@ def send_daily_reminders():
             _skip_admin=True
         )
 
+# ─── Facebook-Tab Sync ────────────────────────────────────
+# Facebook erstellt bei neuen Formular-Verbindungen immer einen neuen Tab.
+# Diese Funktion prüft alle Tabs (außer Tabellenblatt1, Partner_Konto, Leads_Log,
+# Tabellenblatt4) und überträgt neue CREATED-Leads nach Tabellenblatt1.
+# Neue Facebook-Tabs haben folgende Spalten:
+# id, created_time, ad_id, ad_name, adset_id, adset_name, campaign_id,
+# campaign_name, form_id, form_name, is_organic, platform,
+# employment_status, firmenwagen_interest, first_name, last_name,
+# phone_number, email, lead_status
+# ──────────────────────────────────────────────────────────
+
+SYNC_SKIP_SHEETS = {"Tabellenblatt1", "Partner_Konto", "Leads_Log", "Tabellenblatt4"}
+
+def _sync_facebook_tabs():
+    """Überträgt neue CREATED-Leads aus Facebook-Tabs nach Tabellenblatt1."""
+    try:
+        sh = get_spreadsheet()
+        all_worksheets = sh.worksheets()
+        target_ws = sh.worksheet(LEADS_SHEET_NAME)
+
+        # Bestehende IDs in Tabellenblatt1 laden (Duplikat-Schutz)
+        existing_rows = target_ws.get_all_values()
+        existing_ids = set(r[0] for r in existing_rows[1:] if r)
+
+        for ws in all_worksheets:
+            if ws.title in SYNC_SKIP_SHEETS:
+                continue
+
+            try:
+                rows = ws.get_all_values()
+                if not rows or len(rows) < 2:
+                    continue
+
+                header = [h.strip().lower() for h in rows[0]]
+
+                # Prüfen ob es ein Facebook-Lead-Tab ist (muss 'id' und 'lead_status' haben)
+                if 'id' not in header or 'lead_status' not in header:
+                    continue
+
+                # Spalten-Indizes ermitteln
+                def col(name):
+                    return header.index(name) if name in header else -1
+
+                idx_id            = col('id')
+                idx_status        = col('lead_status')
+                idx_created       = col('created_time')
+                idx_ad_id         = col('ad_id')
+                idx_ad_name       = col('ad_name')
+                idx_adset_id      = col('adset_id')
+                idx_adset_name    = col('adset_name')
+                idx_campaign_id   = col('campaign_id')
+                idx_campaign_name = col('campaign_name')
+                idx_form_id       = col('form_id')
+                idx_form_name     = col('form_name')
+                idx_is_organic    = col('is_organic')
+                idx_platform      = col('platform')
+                idx_email         = col('email')
+                idx_phone         = col('phone_number')
+                idx_first_name    = col('first_name')
+                idx_last_name     = col('last_name')
+
+                transferred = 0
+                for i, row in enumerate(rows[1:], start=2):
+                    if len(row) <= idx_status or idx_status < 0:
+                        continue
+
+                    status = row[idx_status].strip().upper() if idx_status >= 0 else ""
+                    if status != "CREATED":
+                        continue
+
+                    lead_id = row[idx_id].strip() if idx_id >= 0 and len(row) > idx_id else ""
+
+                    # Duplikat-Schutz: bereits in Tabellenblatt1?
+                    if lead_id and lead_id in existing_ids:
+                        # Status auf SYNCED setzen damit wir nicht nochmal prüfen
+                        try:
+                            ws.update_cell(i, idx_status + 1, "SYNCED")
+                        except Exception:
+                            pass
+                        continue
+
+                    # Felder zusammenbauen
+                    def get(idx):
+                        return row[idx].strip() if idx >= 0 and len(row) > idx else ""
+
+                    # Name aus first_name + last_name zusammensetzen
+                    first = get(idx_first_name)
+                    last  = get(idx_last_name)
+                    full_name = (first + " " + last).strip() or "Unbekannt"
+
+                    email = get(idx_email)
+                    phone = get(idx_phone)
+
+                    # Neue Zeile für Tabellenblatt1 bauen (16 Spalten)
+                    new_row = [
+                        get(idx_id),             # A – id
+                        get(idx_created),         # B – created_time
+                        get(idx_ad_id),           # C – ad_id
+                        get(idx_ad_name),         # D – ad_name
+                        get(idx_adset_id),        # E – adset_id
+                        get(idx_adset_name),      # F – adset_name
+                        get(idx_campaign_id),     # G – campaign_id
+                        get(idx_campaign_name),   # H – campaign_name
+                        get(idx_form_id),         # I – form_id
+                        get(idx_form_name),       # J – form_name
+                        get(idx_is_organic),      # K – is_organic
+                        get(idx_platform),        # L – platform
+                        email,                    # M – e-mail-adresse
+                        full_name,                # N – vollständiger_name
+                        phone,                    # O – telefonnummer
+                        "CREATED",               # P – lead_status
+                    ]
+
+                    target_ws.append_row(new_row, value_input_option="RAW")
+                    existing_ids.add(lead_id)
+                    transferred += 1
+
+                    # Status im Quell-Tab auf SYNCED setzen
+                    try:
+                        ws.update_cell(i, idx_status + 1, "SYNCED")
+                    except Exception:
+                        pass
+
+                    logger.info(
+                        f"🔄 Sync: '{ws.title}' → Tabellenblatt1: "
+                        f"{full_name} | {email} | {phone}"
+                    )
+
+                if transferred > 0:
+                    logger.info(f"✅ Sync '{ws.title}': {transferred} Leads übertragen")
+                    send_whatsapp(
+                        MATZE_PHONE,
+                        f"🔄 *{transferred} Lead(s) aus '{ws.title}' synchronisiert!*\n"
+                        f"Die Automation verteilt sie jetzt automatisch.",
+                        _skip_admin=True
+                    )
+
+            except Exception as e:
+                logger.error(f"❌ Sync-Fehler Tab '{ws.title}': {e}")
+
+    except Exception as e:
+        logger.error(f"❌ Facebook-Tab-Sync Fehler: {e}")
+
+
 # ─── Lead-Polling ──────────────────────────────────────────
 def _do_poll():
     try:
@@ -984,6 +1128,8 @@ def polling_loop():
     consecutive_errors = 0
     while True:
         try:
+            # Zuerst Facebook-Tabs synchronisieren, dann verteilen
+            _sync_facebook_tabs()
             _do_poll()
             consecutive_errors = 0
         except Exception as e:
@@ -1229,8 +1375,9 @@ def startup_event():
     # Startmeldung an Matze
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v7.7 gestartet!*\n\n"
+        f"🚀 *Lead-System v7.8 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
+        f"✅ Facebook-Tab Sync aktiv (alle neuen Tabs werden erkannt)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
         f"✅ Stripe Webhook aktiv\n"
         f"✅ Zeitfenster-Links aktiv\n"
