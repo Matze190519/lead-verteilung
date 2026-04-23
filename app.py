@@ -926,6 +926,10 @@ def send_daily_reminders():
 
 SYNC_SKIP_SHEETS = {"Tabellenblatt1", "Partner_Konto", "Leads_Log", "Tabellenblatt4"}
 
+# Formular-IDs und Kampagnen-Schlüsselwörter die NICHT ins LR-System dürfen
+SYNC_EXCLUDED_FORM_IDS = {"f:1401075551783502"}  # GTS Firmengründung Spanien
+SYNC_EXCLUDED_CAMPAIGN_KEYWORDS = ["gts", "firmengr", "spanien", "firmengruendung"]
+
 def _sync_facebook_tabs():
     """Überträgt neue CREATED-Leads aus Facebook-Tabs nach Tabellenblatt1."""
     try:
@@ -997,6 +1001,23 @@ def _sync_facebook_tabs():
                     # Felder zusammenbauen
                     def get(idx):
                         return row[idx].strip() if idx >= 0 and len(row) > idx else ""
+
+                    # GTS / Nicht-LR Kampagnen ausschließen
+                    lead_form_id = get(idx_form_id)
+                    lead_campaign = get(idx_campaign_name).lower()
+                    lead_adset = get(idx_adset_name).lower()
+                    if lead_form_id in SYNC_EXCLUDED_FORM_IDS or \
+                       any(kw in lead_campaign for kw in SYNC_EXCLUDED_CAMPAIGN_KEYWORDS) or \
+                       any(kw in lead_adset for kw in SYNC_EXCLUDED_CAMPAIGN_KEYWORDS):
+                        logger.warning(
+                            f"⛔ Sync übersprungen (GTS/Nicht-LR): "
+                            f"form={lead_form_id} campaign={lead_campaign}"
+                        )
+                        try:
+                            ws.update_cell(i, idx_status + 1, "EXCLUDED_GTS")
+                        except Exception:
+                            pass
+                        continue
 
                     # Name aus first_name + last_name zusammensetzen
                     first = get(idx_first_name)
