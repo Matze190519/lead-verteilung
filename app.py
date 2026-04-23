@@ -1109,6 +1109,20 @@ def _do_poll():
 
                 adset_name    = row[LEAD_COL_ADSET_NAME].strip() if len(row) > LEAD_COL_ADSET_NAME else ""
 
+                # ⛔ GTS / Nicht-LR Kampagnen NICHT an Partner verteilen
+                form_id_val = row[8].strip() if len(row) > 8 else ""  # I – form_id
+                camp_lower  = campaign_name.lower()
+                adset_lower = adset_name.lower()
+                if form_id_val in SYNC_EXCLUDED_FORM_IDS or \
+                   any(kw in camp_lower  for kw in SYNC_EXCLUDED_CAMPAIGN_KEYWORDS) or \
+                   any(kw in adset_lower for kw in SYNC_EXCLUDED_CAMPAIGN_KEYWORDS):
+                    logger.warning(
+                        f"⛔ Poll: GTS-Lead übersprungen (nicht an Partner): "
+                        f"form={form_id_val} campaign={campaign_name}"
+                    )
+                    ws.update_cell(i, LEAD_COL_STATUS + 1, "EXCLUDED_GTS")
+                    continue
+
                 lead_data = {
                     "lead_id":       row[0]  if len(row) > 0  else "",
                     "ad_id":         row[2]  if len(row) > 2  else "",
