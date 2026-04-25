@@ -975,9 +975,12 @@ def _sync_facebook_tabs():
                 idx_is_organic    = col('is_organic')
                 idx_platform      = col('platform')
                 idx_email         = col('email')
-                idx_phone         = col('phone_number')
+                # Unterstütze beide Spaltennamen: 'phone_number' und 'phone'
+                idx_phone         = col('phone_number') if col('phone_number') >= 0 else col('phone')
+                # Unterstütze beide Spaltennamen: 'first_name'/'last_name' und 'full_name'
                 idx_first_name    = col('first_name')
                 idx_last_name     = col('last_name')
+                idx_full_name     = col('full_name')
 
                 transferred = 0
                 for i, row in enumerate(rows[1:], start=2):
@@ -1022,7 +1025,10 @@ def _sync_facebook_tabs():
                         try:
                             _gts_first = get(idx_first_name)
                             _gts_last  = get(idx_last_name)
-                            _gts_name  = (_gts_first + " " + _gts_last).strip() or "Unbekannt"
+                            _gts_name  = (_gts_first + " " + _gts_last).strip()
+                            if not _gts_name and idx_full_name >= 0:
+                                _gts_name = get(idx_full_name)
+                            _gts_name = _gts_name or "Unbekannt"
                             _gts_phone = get(idx_phone)
                             _gts_email = get(idx_email)
                             send_whatsapp(
@@ -1039,10 +1045,13 @@ def _sync_facebook_tabs():
                             logger.error(f"GTS Sync WhatsApp Fehler: {_gts_sync_err}")
                         continue
 
-                    # Name aus first_name + last_name zusammensetzen
+                    # Name aus first_name + last_name zusammensetzen (oder full_name)
                     first = get(idx_first_name)
                     last  = get(idx_last_name)
-                    full_name = (first + " " + last).strip() or "Unbekannt"
+                    full_name = (first + " " + last).strip()
+                    if not full_name and idx_full_name >= 0:
+                        full_name = get(idx_full_name)
+                    full_name = full_name or "Unbekannt"
 
                     email = get(idx_email)
                     phone = get(idx_phone)
