@@ -1425,7 +1425,7 @@ def startup_event():
     # Startmeldung an Matze
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v7.8 gestartet!*\n\n"
+        f"🚀 *Lead-System v7.9 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
         f"✅ Facebook-Tab Sync aktiv (alle neuen Tabs werden erkannt)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
@@ -1434,6 +1434,7 @@ def startup_event():
         f"✅ Admin-Infos bei jeder Aktion\n"
         f"✅ Auto-Erkennung Email/Name/Phone\n"
         f"✅ Funnel-Mapping (Partner sieht was Lead gesehen hat)\n"
+        f"✅ GTS-Leads → WhatsApp an Mathias (nicht an LR-Partner)\n"
         f"{'✅' if header_ok else '❌'} Sheet-Header geprüft\n"
         f"✅ Lina: {LINA_WA_NUMBER}\n\n"
         f"Alles läuft! 💪",
