@@ -1018,6 +1018,25 @@ def _sync_facebook_tabs():
                             ws.update_cell(i, idx_status + 1, "EXCLUDED_GTS")
                         except Exception:
                             pass
+                        # ✅ Matze per WhatsApp benachrichtigen (SYNC)
+                        try:
+                            _gts_first = get(idx_first_name)
+                            _gts_last  = get(idx_last_name)
+                            _gts_name  = (_gts_first + " " + _gts_last).strip() or "Unbekannt"
+                            _gts_phone = get(idx_phone)
+                            _gts_email = get(idx_email)
+                            send_whatsapp(
+                                MATZE_PHONE,
+                                f"🇪🇸 *Neuer GTS-Lead (Firmengründung Spanien)!*\n\n"
+                                f"👤 Name: {_gts_name}\n"
+                                f"📱 Telefon: {_gts_phone}\n"
+                                f"📧 Email: {_gts_email}\n"
+                                f"📌 Kampagne: {lead_campaign}\n\n"
+                                f"⛔ Nicht an LR-Partner verteilt.",
+                                _skip_admin=True
+                            )
+                        except Exception as _gts_sync_err:
+                            logger.error(f"GTS Sync WhatsApp Fehler: {_gts_sync_err}")
                         continue
 
                     # Name aus first_name + last_name zusammensetzen
