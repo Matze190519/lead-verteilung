@@ -1146,20 +1146,8 @@ def _do_poll():
                         f"form={form_id_val} campaign={campaign_name}"
                     )
                     ws.update_cell(i, LEAD_COL_STATUS + 1, "EXCLUDED_GTS")
-                    # ✅ Matze per WhatsApp benachrichtigen
-                    try:
-                        send_whatsapp(
-                            MATZE_PHONE,
-                            f"🇪🇸 *Neuer GTS-Lead (Firmengründung Spanien)!*\n\n"
-                            f"👤 Name: {extracted['name']}\n"
-                            f"📱 Telefon: +{extracted['phone']}\n"
-                            f"📧 Email: {extracted['email']}\n"
-                            f"📌 Kampagne: {campaign_name}\n\n"
-                            f"⛔ Nicht an LR-Partner verteilt.",
-                            _skip_admin=True
-                        )
-                    except Exception as _gts_err:
-                        logger.error(f"GTS WhatsApp Fehler: {_gts_err}")
+                    # WhatsApp wird nur im SYNC-Block gesendet, nicht hier im POLL
+                    # (verhindert Doppel-/Dreifach-Benachrichtigung)
                     continue
 
                 lead_data = {
