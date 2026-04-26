@@ -988,25 +988,12 @@ def _sync_facebook_tabs():
                         continue
 
                     status = row[idx_status].strip().upper() if idx_status >= 0 else ""
-                    if status != "CREATED":
-                        continue
-
                     lead_id = row[idx_id].strip() if idx_id >= 0 and len(row) > idx_id else ""
-
-                    # Duplikat-Schutz: bereits in Tabellenblatt1?
-                    if lead_id and lead_id in existing_ids:
-                        # Status auf SYNCED setzen damit wir nicht nochmal prüfen
-                        try:
-                            ws.update_cell(i, idx_status + 1, "SYNCED")
-                        except Exception:
-                            pass
-                        continue
-
                     # Felder zusammenbauen
                     def get(idx):
                         return row[idx].strip() if idx >= 0 and len(row) > idx else ""
-
-                    # GTS / Nicht-LR Kampagnen ausschließen
+                    # GTS / Nicht-LR Kampagnen ausschließen – VOR dem CREATED-Check!
+                    # (GTS-Leads kommen von Facebook mit Status SYNCED, nicht CREATED)
                     lead_form_id = get(idx_form_id)
                     lead_campaign = get(idx_campaign_name).lower()
                     lead_adset = get(idx_adset_name).lower()
@@ -1044,7 +1031,16 @@ def _sync_facebook_tabs():
                         except Exception as _gts_sync_err:
                             logger.error(f"GTS Sync WhatsApp Fehler: {_gts_sync_err}")
                         continue
-
+                    # Nur CREATED-Leads weiterverarbeiten (nach GTS-Check!)
+                    if status != "CREATED":
+                        continue
+                    # Duplikat-Schutz: bereits in Tabellenblatt1?
+                    if lead_id and lead_id in existing_ids:
+                        try:
+                            ws.update_cell(i, idx_status + 1, "SYNCED")
+                        except Exception:
+                            pass
+                        continue
                     # Name aus first_name + last_name zusammensetzen (oder full_name)
                     first = get(idx_first_name)
                     last  = get(idx_last_name)
@@ -1268,7 +1264,7 @@ app = FastAPI(title="Lead-Verteilungs-Service v6.9")
 def root():
     return {
         "service":  "Lead-Verteilungs-Service",
-        "version":  "7.5",
+        "version":  "7.9",
         "status":   "running",
         "sheets": {
             "leads":   LEADS_SHEET_NAME,
@@ -1281,7 +1277,7 @@ def root():
 def health():
     return {
         "status":    "ok",
-        "version":   "7.5",
+        "version":   "7.9",
         "timestamp": datetime.now(BERLIN_TZ).isoformat()
     }
 
@@ -1292,7 +1288,7 @@ def status_check():
         aktive = [p for p in all_records if p["status"].strip().lower() == "aktiv"]
         return {
             "status": "ok",
-            "version": "7.5",
+            "version": "7.9",
             "partner_gesamt": len(all_records),
             "partner_aktiv": len(aktive),
             "timestamp": datetime.now(BERLIN_TZ).isoformat()
