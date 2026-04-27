@@ -988,8 +988,10 @@ def _sync_facebook_tabs():
                         continue
 
                     status = row[idx_status].strip().upper() if idx_status >= 0 else ""
-                    # Bereits verarbeitete Leads überspringen (SYNCED, EXCLUDED_GTS, VERTEILT)
-                    if status in ("SYNCED", "EXCLUDED_GTS", "VERTEILT", "ERROR"):
+                    # EXCLUDED_GTS / VERTEILT / ERROR überspringen
+                    # ACHTUNG: SYNCED hier NICHT überspringen!
+                    # GTS-Leads kommen von Facebook mit Status SYNCED – die müssen noch geprüft werden.
+                    if status in ("EXCLUDED_GTS", "VERTEILT", "ERROR"):
                         continue
                     lead_id = row[idx_id].strip() if idx_id >= 0 and len(row) > idx_id else ""
                     # Felder zusammenbauen
