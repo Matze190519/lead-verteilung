@@ -1,6 +1,6 @@
 
 # ============================================================
-# Lead-Verteilungs-Service v7.9
+# Lead-Verteilungs-Service v8.0
 # ============================================================
 # Basis: v4.9 (stabil) + v6.3 + alle Fixes
 # ============================================================
@@ -62,6 +62,53 @@ BERLIN_TZ      = pytz.timezone("Europe/Berlin")
 LEADS_SHEET_NAME   = "Tabellenblatt1"
 PARTNER_SHEET_NAME = "Partner_Konto"
 LOG_SHEET_NAME     = "Leads_Log"
+
+# ─── Persönliche Outreach-Nummern (35 Leads, 18.05.2026) ──────────────────────
+# Diese 35 Leads haben heute eine persönliche Nachricht von Lina erhalten,
+# in der Mathias sich als Absender vorgestellt hat.
+# Eingehende Antworten dieser Nummern werden NICHT an Botpress weitergeleitet,
+# sondern direkt an Mathias (+491715060008) weitergeleitet.
+# Nummern sind normalisiert (ohne +, ohne Leerzeichen).
+# Liste kann jederzeit geleert werden wenn die Aktion abgeschlossen ist.
+PERSONAL_OUTREACH_NUMBERS = {
+    "4915229525402",   # Heiko
+    "34641689043",     # Ator
+    "436641100575",    # Marco S.
+    "4915757078693",   # Salman
+    "4915217523018",   # El Mitevski
+    "34685578351",     # Iulia
+    "436502007572",    # Rupert F.
+    "905452511212",    # Conwaynen
+    "4915204796954",   # Ingolf
+    "41791548025",     # Kamel
+    "4917630745947",   # Marco Sch.
+    "4915511558064",   # Gabryel
+    "436763223082",    # Anton
+    "436765998767",    # Adrian
+    "34638434151",     # Alejandro
+    "4917654125929",   # Frank R.
+    "491629331646",    # Frank H.
+    "41787568841",     # Gi Van Alin
+    "34652035095",     # Giuseppe
+    "491759979085",    # Lydia
+    "436767609001",    # Rupert P.
+    "41765415688",     # Mario
+    "436765326122",    # Christoph
+    "491791375028",    # Michael
+    "436766738315",    # Manuel
+    "4915151868158",   # Tanja
+    "491733060912",    # Manfred
+    "4366499294121",   # Jürgen
+    "436764407041",    # Phillip
+    "436602037576",    # David
+    "4916098645201",   # Bast
+    "436503630029",    # Joachim
+    "491799798794",    # Burkhardt
+    "4917622834125",   # Sasha
+    "4917623101086",   # Agostino
+}
+
+BOTPRESS_WEBHOOK_URL = "https://webhook.botpress.cloud/30208abb-37b2-462b-90b9-0478eb3ff498"
 
 # ─── Spalten Partner_Konto (1-basiert für update_cell) ─────
 COL_NAME        = 1   # A – Name
@@ -1251,13 +1298,13 @@ def validate_sheet_headers():
         return False
 
 # ─── FastAPI App ───────────────────────────────────────────
-app = FastAPI(title="Lead-Verteilungs-Service v6.9")
+app = FastAPI(title="Lead-Verteilungs-Service v8.0")
 
 @app.get("/")
 def root():
     return {
         "service":  "Lead-Verteilungs-Service",
-        "version":  "7.9",
+        "version":  "8.0",
         "status":   "running",
         "sheets": {
             "leads":   LEADS_SHEET_NAME,
@@ -1270,7 +1317,7 @@ def root():
 def health():
     return {
         "status":    "ok",
-        "version":   "7.9",
+        "version":   "8.0",
         "timestamp": datetime.now(BERLIN_TZ).isoformat()
     }
 
@@ -1281,7 +1328,7 @@ def status_check():
         aktive = [p for p in all_records if p["status"].strip().lower() == "aktiv"]
         return {
             "status": "ok",
-            "version": "7.9",
+            "version": "8.0",
             "partner_gesamt": len(all_records),
             "partner_aktiv": len(aktive),
             "timestamp": datetime.now(BERLIN_TZ).isoformat()
@@ -1417,6 +1464,172 @@ def test_reminder():
     t.start()
     return {"status": "ok", "message": "Erinnerungen werden gesendet"}
 
+# ─── Inbound-Relay: Eingehende Nachrichten an Linas Nummer ──────────────────
+# Dieser Endpoint empfängt alle eingehenden WhatsApp-Nachrichten
+# an Linas Nummer (Phone ID 623007617563961).
+#
+# Logik:
+# 1. Ist der Absender in PERSONAL_OUTREACH_NUMBERS?
+#    JA  → Lina antwortet automatisch + Mathias erhält eine Benachrichtigung
+#    NEIN → Nachricht wird 1:1 an Botpress weitergeleitet (normaler Bot-Flow)
+#
+# WICHTIG: Dieser Endpoint verändert KEINE bestehende Logik.
+# Er ist rein additiv und greift nur bei eingehenden Nachrichten.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Namenszuordnung für die 35 Outreach-Leads (für die Benachrichtigung an Mathias)
+OUTREACH_NAMES = {
+    "4915229525402": "Heiko",
+    "34641689043":   "Ator",
+    "436641100575":  "Marco S.",
+    "4915757078693": "Salman",
+    "4915217523018": "El Mitevski",
+    "34685578351":   "Iulia",
+    "436502007572":  "Rupert F.",
+    "905452511212":  "Conwaynen",
+    "4915204796954": "Ingolf",
+    "41791548025":   "Kamel",
+    "4917630745947": "Marco Sch.",
+    "4915511558064": "Gabryel",
+    "436763223082":  "Anton",
+    "436765998767":  "Adrian",
+    "34638434151":   "Alejandro",
+    "4917654125929": "Frank R.",
+    "491629331646":  "Frank H.",
+    "41787568841":   "Gi Van Alin",
+    "34652035095":   "Giuseppe",
+    "491759979085":  "Lydia",
+    "436767609001":  "Rupert P.",
+    "41765415688":   "Mario",
+    "436765326122":  "Christoph",
+    "491791375028":  "Michael",
+    "436766738315":  "Manuel",
+    "4915151868158": "Tanja",
+    "491733060912":  "Manfred",
+    "4366499294121": "Jürgen",
+    "436764407041":  "Phillip",
+    "436602037576":  "David",
+    "4916098645201": "Bast",
+    "436503630029":  "Joachim",
+    "491799798794":  "Burkhardt",
+    "4917622834125": "Sasha",
+    "4917623101086": "Agostino",
+}
+
+@app.get("/inbound")
+async def inbound_verify(request: Request):
+    """Meta Webhook-Verifizierung (GET-Request beim ersten Setup)."""
+    params = dict(request.query_params)
+    mode      = params.get("hub.mode", "")
+    token     = params.get("hub.verify_token", "")
+    challenge = params.get("hub.challenge", "")
+    verify_token = os.getenv("WEBHOOK_VERIFY_TOKEN", "matze_inbound_2026")
+    if mode == "subscribe" and token == verify_token:
+        logger.info("✅ Meta Webhook-Verifizierung erfolgreich")
+        return int(challenge)
+    logger.warning(f"⚠️ Webhook-Verifizierung fehlgeschlagen: mode={mode} token={token}")
+    raise HTTPException(status_code=403, detail="Verifizierung fehlgeschlagen")
+
+@app.post("/inbound")
+async def inbound_relay(request: Request):
+    """
+    Empfängt eingehende WhatsApp-Nachrichten an Linas Nummer.
+    - Ist der Absender in PERSONAL_OUTREACH_NUMBERS: Lina antwortet + Matze wird benachrichtigt.
+    - Sonst: Nachricht wird 1:1 an Botpress weitergeleitet.
+    Gibt immer 200 OK zurück (Meta erwartet das, sonst Retry-Schleife).
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        # Kein gültiges JSON – trotzdem 200 zurückgeben
+        return {"status": "ok"}
+
+    try:
+        # Meta-Webhook-Payload parsen
+        # Struktur: body.entry[].changes[].value.messages[]
+        entries = body.get("entry", [])
+        for entry in entries:
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                messages = value.get("messages", [])
+                contacts = value.get("contacts", [])
+
+                for msg in messages:
+                    msg_type = msg.get("type", "")
+                    # Nur Text-Nachrichten verarbeiten (keine Status-Updates etc.)
+                    if msg_type not in ("text", "audio", "image", "video", "document", "sticker", "reaction", "button", "interactive"):
+                        continue
+
+                    sender_raw = msg.get("from", "")
+                    # Normalisieren: + und Leerzeichen entfernen
+                    sender = re.sub(r'[\s\+]', '', sender_raw.strip())
+
+                    # Nachrichtentext extrahieren (je nach Typ)
+                    if msg_type == "text":
+                        msg_text = msg.get("text", {}).get("body", "")
+                    elif msg_type == "button":
+                        msg_text = msg.get("button", {}).get("text", "[Button-Antwort]")
+                    elif msg_type == "interactive":
+                        interactive = msg.get("interactive", {})
+                        if interactive.get("type") == "button_reply":
+                            msg_text = interactive.get("button_reply", {}).get("title", "[Button]")
+                        elif interactive.get("type") == "list_reply":
+                            msg_text = interactive.get("list_reply", {}).get("title", "[Liste]")
+                        else:
+                            msg_text = "[Interaktive Nachricht]"
+                    else:
+                        msg_text = f"[{msg_type.upper()}]"
+
+                    # Absendername aus contacts (falls vorhanden)
+                    sender_name = ""
+                    for contact in contacts:
+                        if contact.get("wa_id", "") == sender_raw or \
+                           re.sub(r'[\s\+]', '', contact.get("wa_id", "")) == sender:
+                            sender_name = contact.get("profile", {}).get("name", "")
+                            break
+
+                    logger.info(f"📩 Eingehende Nachricht von +{sender}: {msg_text[:50]}")
+
+                    if sender in PERSONAL_OUTREACH_NUMBERS:
+                        # ─── OUTREACH-LEAD: Persönliche Weiterleitung an Mathias ───
+                        lead_name = OUTREACH_NAMES.get(sender, sender_name or f"+{sender}")
+                        logger.info(f"🟡 Outreach-Lead erkannt: {lead_name} (+{sender})")
+
+                        # 1. Lina antwortet automatisch an den Lead
+                        send_whatsapp(
+                            sender,
+                            "Mathias meldet sich gleich persönlich bei dir 👋",
+                            _skip_admin=True
+                        )
+
+                        # 2. Mathias erhält eine Benachrichtigung mit vollem Kontext
+                        matze_msg = (
+                            f"📩 *Antwort von Outreach-Lead!*\n\n"
+                            f"👤 *Name:* {lead_name}\n"
+                            f"📱 *Nummer:* +{sender}\n\n"
+                            f"💬 *Nachricht:*\n{msg_text}\n\n"
+                            f"👉 Direkt antworten: https://wa.me/{sender}"
+                        )
+                        send_whatsapp(MATZE_PHONE, matze_msg, _skip_admin=True)
+
+                    else:
+                        # ─── NORMALER LEAD: An Botpress weiterleiten ───
+                        logger.info(f"🤖 Nicht in Outreach-Liste → Botpress: +{sender}")
+                        try:
+                            requests.post(
+                                BOTPRESS_WEBHOOK_URL,
+                                json=body,
+                                timeout=5
+                            )
+                        except Exception as bp_err:
+                            logger.warning(f"⚠️ Botpress-Weiterleitung fehlgeschlagen: {bp_err}")
+
+    except Exception as e:
+        logger.error(f"❌ Inbound-Relay Fehler: {e}")
+        # Trotzdem 200 zurückgeben – Meta darf keine Fehler sehen
+
+    return {"status": "ok"}
+
 # ─── Startup ───────────────────────────────────────────────
 @app.on_event("startup")
 def startup_event():
@@ -1440,9 +1653,10 @@ def startup_event():
     logger.info("💓 Keep-Alive-Thread gestartet")
 
     # Startmeldung an Matze
+    header_emoji = "✅" if header_ok else "❌"
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v7.9 gestartet!*\n\n"
+        f"🚀 *Lead-System v8.0 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
         f"✅ Facebook-Tab Sync aktiv (alle neuen Tabs werden erkannt)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
@@ -1452,7 +1666,8 @@ def startup_event():
         f"✅ Auto-Erkennung Email/Name/Phone\n"
         f"✅ Funnel-Mapping (Partner sieht was Lead gesehen hat)\n"
         f"✅ GTS-Leads → WhatsApp an Mathias (nicht an LR-Partner)\n"
-        f"{'✅' if header_ok else '❌'} Sheet-Header geprüft\n"
+        f"✅ Inbound-Relay aktiv (35 Outreach-Leads → Mathias direkt)\n"
+        f"{header_emoji} Sheet-Header geprüft\n"
         f"✅ Lina: {LINA_WA_NUMBER}\n\n"
         f"Alles läuft! 💪",
         _skip_admin=True
