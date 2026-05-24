@@ -961,7 +961,7 @@ SYNC_SKIP_SHEETS = {"Tabellenblatt1", "Partner_Konto", "Leads_Log", "Tabellenbla
 
 # Formular-IDs und Kampagnen-Schlüsselwörter die NICHT ins LR-System dürfen
 SYNC_EXCLUDED_FORM_IDS = {"f:1401075551783502"}  # GTS Firmengründung Spanien
-SYNC_EXCLUDED_CAMPAIGN_KEYWORDS = ["gts", "firmengr", "spanien", "firmengruendung"]
+SYNC_EXCLUDED_CAMPAIGN_KEYWORDS = ["gts", "firmengr", "spanien", "firmengruendung", "dubai"]
 
 def _sync_facebook_tabs():
     """Überträgt neue CREATED-Leads aus Facebook-Tabs nach Tabellenblatt1."""
@@ -1053,7 +1053,7 @@ def _sync_facebook_tabs():
                             if not _gts_name and idx_full_name >= 0:
                                 _gts_name = get(idx_full_name)
                             _gts_name = _gts_name or "Unbekannt"
-                            _gts_phone = get(idx_phone)
+                            _gts_phone = normalize_phone(get(idx_phone))
                             _gts_email = get(idx_email)
                             send_whatsapp(
                                 MATZE_PHONE,
