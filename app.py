@@ -713,28 +713,13 @@ def process_lead(lead_data: dict):
     wa_lead_ok = False
     lead_wa_info = "Deaktiviert (Interessent kontaktiert Matze direkt)"
 
-    # ── Admin-Nachricht an Matze ──
+    # ── Admin-Nachricht an Matze (kompakt) ──
+    phone_str = f"+{lead_phone}" if lead_phone else "–"
     admin_msg = (
-        f"✅ *Neuer Interessent verteilt!*\n\n"
-        f"━━━ INTERESSENT ━━━\n"
-        f"👤 Name: {lead_name}\n"
-    )
-    if lead_phone:
-        admin_msg += f"📞 Telefon: +{lead_phone}\n"
-    if lead_email:
-        admin_msg += f"📧 Email: {lead_email}\n"
-    admin_msg += f"{funnel['emoji']} Quelle: {funnel['label']}\n"
-    admin_msg += (
-        f"\n━━━ ZUGEWIESEN AN ━━━\n"
-        f"👤 Partner: {partner['name']}\n"
-        f"📱 Tel: {partner['phone']}\n"
-        f"💰 Guthaben: {partner['guthaben']:.2f}€ → {neues_guthaben:.2f}€\n"
-        f"📦 Interessenten gesamt: {new_lead_count}\n"
-    )
-    admin_msg += (
-        f"\n━━━ STATUS ━━━\n"
-        f"📲 Partner-Nachricht: {'Zugestellt' if wa_partner_ok else 'NICHT zugestellt!'}\n"
-        f"📲 Interessent-Nachricht: {lead_wa_info}\n"
+        f"✅ *{lead_name}* → {partner['name']}\n"
+        f"📞 {phone_str} | {funnel['emoji']} {funnel['label']}\n"
+        f"💰 {partner['guthaben']:.0f}€ → {neues_guthaben:.0f}€ | "
+        f"{'✅' if wa_partner_ok else '❌'} Partner-WA"
     )
     send_whatsapp(MATZE_PHONE, admin_msg, _skip_admin=True)
 
@@ -972,7 +957,7 @@ def send_daily_reminders():
 # phone_number, email, lead_status
 # ──────────────────────────────────────────────────────────
 
-SYNC_SKIP_SHEETS = {"Tabellenblatt1", "Partner_Konto", "Leads_Log", "Tabellenblatt4"}
+SYNC_SKIP_SHEETS = {"Tabellenblatt1", "Partner_Konto", "Leads_Log", "Tabellenblatt4", "SMS_Replies", "Termine_Lina"}
 
 # Formular-IDs und Kampagnen-Schlüsselwörter die NICHT ins LR-System dürfen
 SYNC_EXCLUDED_FORM_IDS = {"f:1401075551783502"}  # GTS Firmengründung Spanien
@@ -1141,12 +1126,7 @@ def _sync_facebook_tabs():
 
                 if transferred > 0:
                     logger.info(f"✅ Sync '{ws.title}': {transferred} Leads übertragen")
-                    send_whatsapp(
-                        MATZE_PHONE,
-                        f"🔄 *{transferred} Lead(s) aus '{ws.title}' synchronisiert!*\n"
-                        f"Die Automation verteilt sie jetzt automatisch.",
-                        _skip_admin=True
-                    )
+                    # Sync-Notification deaktiviert – Admin-Nachricht kommt bereits bei Verteilung
 
             except Exception as e:
                 logger.error(f"❌ Sync-Fehler Tab '{ws.title}': {e}")
