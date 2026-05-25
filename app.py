@@ -960,7 +960,7 @@ def send_daily_reminders():
 SYNC_SKIP_SHEETS = {"Tabellenblatt1", "Partner_Konto", "Leads_Log", "Tabellenblatt4", "SMS_Replies", "Termine_Lina"}
 
 # Formular-IDs und Kampagnen-Schlüsselwörter die NICHT ins LR-System dürfen
-SYNC_EXCLUDED_FORM_IDS = {"f:1401075551783502", "f:2860546967626542"}  # GTS Spanien + Folierung AWCP
+SYNC_EXCLUDED_FORM_IDS = {"f:1401075551783502", "f:2860546967626542"}  # GTS Firmengründung Spanien
 SYNC_EXCLUDED_CAMPAIGN_KEYWORDS = ["gts", "firmengr", "spanien", "firmengruendung", "dubai"]
 
 def _sync_facebook_tabs():
