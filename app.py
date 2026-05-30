@@ -447,6 +447,37 @@ def send_whatsapp(phone: str, message: str, _skip_admin: bool = False) -> bool:
         logger.error(f"❌ WhatsApp Exception: {e}")
         return False
 
+def send_whatsapp_buttons(phone: str, body_text: str, btn_anruf_id: str, btn_selbst_id: str) -> bool:
+    """Sendet eine WhatsApp mit 2 Auswahl-Buttons (Lina anrufen / selbst melden)."""
+    if not META_TOKEN or not META_PHONE_ID or not phone:
+        return False
+    url = f"https://graph.facebook.com/v22.0/{META_PHONE_ID}/messages"
+    headers = {"Authorization": f"Bearer {META_TOKEN}", "Content-Type": "application/json"}
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": phone,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body_text[:1024]},
+            "action": {"buttons": [
+                {"type": "reply", "reply": {"id": btn_anruf_id[:256], "title": "☎️ Lina anrufen"}},
+                {"type": "reply", "reply": {"id": btn_selbst_id[:256], "title": "✋ Selbst melden"}},
+            ]},
+        },
+    }
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=10)
+        if resp.status_code == 200:
+            logger.info(f"✅ Button-WhatsApp gesendet → {phone}")
+            return True
+        logger.warning(f"⚠️ Button-WA fehlgeschlagen {resp.status_code}: {resp.text[:200]}")
+        return False
+    except Exception as e:
+        logger.error(f"❌ Button-WA Exception: {e}")
+        return False
+
+
 # ─── Partner lesen (mit Retry) ─────────────────────────────
 def get_all_partner_records():
     for attempt in range(3):
@@ -703,8 +734,20 @@ def process_lead(lead_data: dict):
         f"Je schneller du dich meldest, desto höher die Chance."
     )
 
-    # ── Senden an Partner ──
-    wa_partner_ok = send_whatsapp(partner["phone"], partner_msg)
+    # ── Senden an Partner (mit Auswahl-Buttons) ──
+    _btn_body = (
+        f"🎯 NEUER LEAD für dich!\n"
+        f"👤 {lead_name}\n"
+        f"📞 +{lead_phone}\n"
+        f"{funnel['emoji']} {funnel['label']}\n"
+        f"💰 Guthaben danach: {neues_guthaben:.0f} €\n\n"
+        f"Wie möchtest du weitermachen?"
+    )
+    _anruf_id = f"anruf|{lead_phone}|{lead_name}|{partner['name']}"
+    _selbst_id = f"selbst|{lead_phone}"
+    wa_partner_ok = send_whatsapp_buttons(partner["phone"], _btn_body, _anruf_id, _selbst_id)
+    if not wa_partner_ok:
+        wa_partner_ok = send_whatsapp(partner["phone"], partner_msg)
 
     # ── Interessent-Nachricht DEAKTIVIERT ──
     # Interessent schreibt Matze direkt auf WhatsApp (01715060008).
@@ -1567,6 +1610,32 @@ async def inbound_relay(request: Request):
                            re.sub(r'[\s\+]', '', contact.get("wa_id", "")) == sender:
                             sender_name = contact.get("profile", {}).get("name", "")
                             break
+
+                    # ── Button-Klick vom Partner (Lead-Auswahl) ──
+                    btn_id = ""
+                    if msg_type == "interactive":
+                        btn_id = msg.get("interactive", {}).get("button_reply", {}).get("id", "")
+                    if btn_id.startswith("anruf|") or btn_id.startswith("selbst|"):
+                        parts = btn_id.split("|")
+                        aktion = parts[0]
+                        lead_tel = parts[1] if len(parts) > 1 else ""
+                        lead_nm = parts[2] if len(parts) > 2 else "Interessent"
+                        partner_nm = parts[3] if len(parts) > 3 else ""
+                        if aktion == "anruf":
+                            try:
+                                requests.post(
+                                    "https://hook.eu2.make.com/gc3hfv8iww2vi9nbpfdgfyod8smwzbso",
+                                    json={"phoneNumber": lead_tel if lead_tel.startswith("+") else ("+" + lead_tel),
+                                          "leadName": lead_nm, "partnerName": partner_nm, "leadSource": "LR-ButtonCall"},
+                                    timeout=8,
+                                )
+                                send_whatsapp(sender, f"✅ Top! Lina ruft {lead_nm} gleich an und bucht den Termin für dich.", _skip_admin=True)
+                            except Exception as be:
+                                logger.error(f"❌ Button-Anruf-Trigger Fehler: {be}")
+                                send_whatsapp(sender, "⚠️ Konnte den Anruf gerade nicht starten, bitte nochmal tippen.", _skip_admin=True)
+                        else:
+                            send_whatsapp(sender, f"👍 Alles klar, du meldest dich selbst bei {lead_nm}.", _skip_admin=True)
+                        continue
 
                     logger.info(f"📩 Eingehende Nachricht von +{sender}: {msg_text[:50]}")
 
