@@ -451,19 +451,23 @@ def send_whatsapp_buttons(phone: str, body_text: str, btn_anruf_id: str, btn_sel
     """Sendet eine WhatsApp mit 2 Auswahl-Buttons (Lina anrufen / selbst melden)."""
     if not META_TOKEN or not META_PHONE_ID or not phone:
         return False
+    import urllib.parse as _url
+    _parts = btn_anruf_id.split("|")
+    _lead_tel = _parts[1] if len(_parts) > 1 else ""
+    _lead_nm = _parts[2] if len(_parts) > 2 else "Interessent"
+    _partner_nm = _parts[3] if len(_parts) > 3 else ""
+    _anruf_url = "https://lead-verteilung.onrender.com/anruf?" + _url.urlencode({"phone": _lead_tel, "name": _lead_nm, "partner": _partner_nm})
     url = f"https://graph.facebook.com/v22.0/{META_PHONE_ID}/messages"
     headers = {"Authorization": f"Bearer {META_TOKEN}", "Content-Type": "application/json"}
+    _body_full = (body_text + "\n\n✋ Oder melde dich selbst direkt beim Interessenten.")[:1024]
     payload = {
         "messaging_product": "whatsapp",
         "to": phone,
         "type": "interactive",
         "interactive": {
-            "type": "button",
-            "body": {"text": body_text[:1024]},
-            "action": {"buttons": [
-                {"type": "reply", "reply": {"id": btn_anruf_id[:256], "title": "☎️ Lina anrufen"}},
-                {"type": "reply", "reply": {"id": btn_selbst_id[:256], "title": "✋ Selbst melden"}},
-            ]},
+            "type": "cta_url",
+            "body": {"text": _body_full},
+            "action": {"name": "cta_url", "parameters": {"display_text": "☎️ Lina anrufen", "url": _anruf_url}},
         },
     }
     try:
@@ -1538,6 +1542,32 @@ OUTREACH_NAMES = {
     "4917622834125": "Sasha",
     "4917623101086": "Agostino",
 }
+
+@app.get("/anruf")
+async def anruf_link(request: Request):
+    """Link-Button 'Lina anrufen' -> loest den Anruf via Call-Trigger aus."""
+    p = dict(request.query_params)
+    phone = (p.get("phone") or "").strip()
+    name = (p.get("name") or "Interessent").strip()
+    partner = (p.get("partner") or "").strip()
+    if phone and not phone.startswith("+"):
+        phone = "+" + phone
+    ok = False
+    if phone:
+        try:
+            r = requests.post(
+                "https://hook.eu2.make.com/gc3hfv8iww2vi9nbpfdgfyod8smwzbso",
+                json={"phoneNumber": phone, "leadName": name, "partnerName": partner, "leadSource": "LR-ButtonCall"},
+                timeout=8,
+            )
+            ok = (r.status_code == 200)
+        except Exception as e:
+            logger.error(f"/anruf Trigger Fehler: {e}")
+    msg = (f"✅ Lina ruft {name} gleich an und bucht den Termin fuer dich."
+           if ok else
+           "⚠️ Konnte den Anruf gerade nicht starten - bitte nochmal tippen oder den Lead selbst kontaktieren.")
+    return HTMLResponse(content=f"""<!doctype html><html lang=de><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Lina</title></head><body style="font-family:sans-serif;text-align:center;padding:48px 20px;background:#f7f7f7"><div style="max-width:420px;margin:0 auto;background:#fff;border-radius:16px;padding:32px;box-shadow:0 2px 12px rgba(0,0,0,.08)"><h2 style="margin:0 0 12px">{msg}</h2><p style="color:#666">Du kannst dieses Fenster jetzt schliessen.</p></div></body></html>""")
+
 
 @app.get("/inbound")
 async def inbound_verify(request: Request):
