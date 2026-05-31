@@ -451,23 +451,33 @@ def send_whatsapp_buttons(phone: str, body_text: str, btn_anruf_id: str, btn_sel
     """Sendet eine WhatsApp mit 2 Auswahl-Buttons (Lina anrufen / selbst melden)."""
     if not META_TOKEN or not META_PHONE_ID or not phone:
         return False
-    import urllib.parse as _url
-    _parts = btn_anruf_id.split("|")
-    _lead_tel = _parts[1] if len(_parts) > 1 else ""
-    _lead_nm = _parts[2] if len(_parts) > 2 else "Interessent"
-    _partner_nm = _parts[3] if len(_parts) > 3 else ""
-    _anruf_url = "https://lead-verteilung.onrender.com/anruf?" + _url.urlencode({"phone": _lead_tel, "name": _lead_nm, "partner": _partner_nm})
+    # Lead-Daten fuer ButtonBridge merken (Botpress 'Lina anrufen' schlaegt sie nach)
+    try:
+        _p = btn_anruf_id.split("|")
+        requests.post(
+            "https://hook.eu2.make.com/nxg2korn8ogmhki0y7h4uf9xqg2razhw",
+            json={"mode": "store",
+                  "partnerPhone": re.sub(r"[^0-9]", "", phone),
+                  "leadPhone": _p[1] if len(_p) > 1 else "",
+                  "leadName": _p[2] if len(_p) > 2 else "Interessent",
+                  "partnerName": _p[3] if len(_p) > 3 else ""},
+            timeout=6,
+        )
+    except Exception as _e:
+        logger.warning(f"ButtonBridge store fehlgeschlagen: {_e}")
     url = f"https://graph.facebook.com/v22.0/{META_PHONE_ID}/messages"
     headers = {"Authorization": f"Bearer {META_TOKEN}", "Content-Type": "application/json"}
-    _body_full = (body_text + "\n\n✋ Oder melde dich selbst direkt beim Interessenten.")[:1024]
     payload = {
         "messaging_product": "whatsapp",
         "to": phone,
         "type": "interactive",
         "interactive": {
-            "type": "cta_url",
-            "body": {"text": _body_full},
-            "action": {"name": "cta_url", "parameters": {"display_text": "☎️ Lina anrufen", "url": _anruf_url}},
+            "type": "button",
+            "body": {"text": body_text[:1024]},
+            "action": {"buttons": [
+                {"type": "reply", "reply": {"id": btn_anruf_id[:256], "title": "☎️ Lina anrufen"}},
+                {"type": "reply", "reply": {"id": btn_selbst_id[:256], "title": "✋ Selbst melden"}},
+            ]},
         },
     }
     try:
