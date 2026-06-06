@@ -1031,7 +1031,7 @@ def send_daily_reminders():
 # phone_number, email, lead_status
 # ──────────────────────────────────────────────────────────
 
-SYNC_SKIP_SHEETS = {"Tabellenblatt1", "Partner_Konto", "Leads_Log", "Tabellenblatt4", "SMS_Replies", "Termine_Lina"}
+SYNC_SKIP_SHEETS = {"Tabellenblatt1", "Partner_Konto", "Leads_Log", "Tabellenblatt4", "SMS_Replies", "Termine_Lina", "Lina_Anruf_Status", "Partner_Notizen", "Partner_Lead_Status", "Partner_Nachfass_Log", "Recall_Queue", "Nachfass_Library"}
 
 # Formular-IDs und Kampagnen-Schlüsselwörter die NICHT ins LR-System dürfen
 SYNC_EXCLUDED_FORM_IDS = {"f:1401075551783502", "f:2860546967626542"}  # GTS Firmengründung Spanien
