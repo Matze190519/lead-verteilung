@@ -652,7 +652,9 @@ def add_new_partner(name: str, email: str, phone_raw: str, guthaben: float):
         ws = get_partner_sheet()
         phone = normalize_phone(phone_raw)
         now_str = datetime.now(BERLIN_TZ).strftime("%Y-%m-%d %H:%M:%S")
-        token = secrets.token_hex(16)
+        # Token deterministisch ueber md5(name + SALT) — konsistent mit Make-Scenario 9296372
+        import hashlib
+        token = hashlib.md5((name + "lina-board-2026-x7k2").encode()).hexdigest()
         ws.append_row([
             name,
             phone,
