@@ -1585,7 +1585,7 @@ async def anruf_link(request: Request):
     if phone:
         try:
             r = requests.post(
-                "https://hook.eu2.make.com/gc3hfv8iww2vi9nbpfdgfyod8smwzbso",
+                "https://hook.eu2.make.com/fkifa17zbg7fek20amdd2qdv35634ltk",
                 json={"phoneNumber": phone, "leadName": name, "partnerName": partner, "leadSource": "LR-ButtonCall"},
                 timeout=8,
             )
@@ -1683,7 +1683,7 @@ async def inbound_relay(request: Request):
                         if aktion == "anruf":
                             try:
                                 requests.post(
-                                    "https://hook.eu2.make.com/gc3hfv8iww2vi9nbpfdgfyod8smwzbso",
+                                    "https://hook.eu2.make.com/fkifa17zbg7fek20amdd2qdv35634ltk",
                                     json={"phoneNumber": lead_tel if lead_tel.startswith("+") else ("+" + lead_tel),
                                           "leadName": lead_nm, "partnerName": partner_nm, "leadSource": "LR-ButtonCall"},
                                     timeout=8,
