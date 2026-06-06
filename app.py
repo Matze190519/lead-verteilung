@@ -20,6 +20,7 @@
 # ============================================================
 
 import os
+import secrets
 import json
 import logging
 import threading
@@ -646,10 +647,12 @@ def update_zeitfenster_im_sheet(phone: str, zeitfenster: str) -> bool:
 
 # ─── Neuen Partner anlegen ────────────────────────────────
 def add_new_partner(name: str, email: str, phone_raw: str, guthaben: float):
+    """Legt neuen Partner an + generiert Token für Lead-Board. Returnt Token (oder '')."""
     try:
         ws = get_partner_sheet()
         phone = normalize_phone(phone_raw)
         now_str = datetime.now(BERLIN_TZ).strftime("%Y-%m-%d %H:%M:%S")
+        token = secrets.token_hex(16)
         ws.append_row([
             name,
             phone,
@@ -658,11 +661,14 @@ def add_new_partner(name: str, email: str, phone_raw: str, guthaben: float):
             now_str,
             "Aktiv",
             "Ganztag",
-            email
+            email,
+            token,  # Spalte 9 = Token für Lead-Board
         ])
-        logger.info(f"✅ Neuer Partner: {name} | {email} | {guthaben}€")
+        logger.info(f"✅ Neuer Partner: {name} | {email} | {guthaben}€ | Token: {token[:8]}…")
+        return token
     except Exception as e:
         logger.error(f"❌ Neuer Partner Fehler: {e}")
+        return ""
 
 # ─── Lead-Logging ──────────────────────────────────────────
 def log_lead(lead_data: dict, partner: dict, neues_guthaben: float, wa_partner: bool, wa_lead: bool, status: str):
@@ -861,12 +867,22 @@ def process_stripe_payment(session: dict):
 
         else:
             # ── Neuer Partner ──
-            add_new_partner(name, email, phone_raw, betrag)
+            new_token = add_new_partner(name, email, phone_raw, betrag)
 
             partner_phone = normalize_phone(phone_raw)
 
+            # Board-Link nur einbauen wenn Token erfolgreich generiert
+            board_link_block = ""
+            if new_token:
+                board_url = f"https://lina-partner-board-lr.netlify.app/?p={new_token}"
+                board_link_block = (
+                    f"📱 *Dein persönliches Lead-Board:*\n"
+                    f"👉 {board_url}\n"
+                    f"(Hier siehst du alle Leads, machst Notizen, setzt Status — speichere den Link!)\n\n"
+                )
+
             if partner_phone:
-                # Nachricht 1: Willkommen
+                # Nachricht 1: Willkommen mit Board-Link
                 wa_ok = send_whatsapp(
                     partner_phone,
                     f"🎉 *Willkommen im LR Lifestyle Team!*\n\n"
@@ -882,6 +898,7 @@ def process_stripe_payment(session: dict):
                     f"2️⃣ Vormittag (08–12h): {APP_URL}/zeitfenster?phone={partner_phone}&wahl=Vormittag\n"
                     f"3️⃣ Nachmittag (12–17h): {APP_URL}/zeitfenster?phone={partner_phone}&wahl=Nachmittag\n"
                     f"4️⃣ Abend (17–22h): {APP_URL}/zeitfenster?phone={partner_phone}&wahl=Abend\n\n"
+                    f"{board_link_block}"
                     f"Fragen? Matze: wa.me/491715060008\n\n"
                     f"🚀 Viel Erfolg!"
                 )
