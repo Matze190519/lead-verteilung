@@ -927,6 +927,115 @@ def process_stripe_payment(session: dict):
             _skip_admin=True
         )
 
+# ─── Termin-Reminder 90 Min vor Termin ───────────────────
+def check_termin_reminders():
+    """Pruefe Termine_Lina auf bevorstehende Termine + sende Erinnerungen.
+
+    Trigger: Termin in 75-105 Minuten, Notification_Sent_Partner leer/nicht REMINDER_.
+    Sendet WA an Partner (aus Partner_Konto) und Info an Mathias.
+    Markiert Spalte M (Notification_Sent_Partner) mit REMINDER_<timestamp>.
+    """
+    try:
+        sh = get_spreadsheet()
+        ws = sh.worksheet("Termine_Lina")
+        rows = ws.get_all_values()
+        if len(rows) < 2:
+            return
+        header = rows[0]
+        # Spalten-Indices (0-based)
+        IDX_NAME, IDX_PHONE, IDX_PARTNER, IDX_TERMIN, IDX_ZWECK, IDX_NOTIF = 1, 2, 4, 6, 8, 12
+
+        now_berlin = datetime.now(BERLIN_TZ)
+        partners = {}
+        try:
+            for p in get_all_partner_records():
+                partners[p["name"].strip().lower()] = p
+        except Exception as pe:
+            logger.warning(f"Reminder: partner-fetch failed: {pe}")
+
+        for i, row in enumerate(rows[1:], start=2):  # 1-based Sheet-Zeile = i+1; rows[1:] start=2
+            if len(row) <= IDX_TERMIN:
+                continue
+            termin_str = (row[IDX_TERMIN] or "").strip()
+            if not termin_str:
+                continue
+            notif_old = (row[IDX_NOTIF] if len(row) > IDX_NOTIF else "").strip().upper()
+            if notif_old.startswith("REMINDER_"):
+                continue  # schon gesendet
+
+            # Parse ISO mit Zeitzone
+            try:
+                # Beispiel: "2026-06-08T15:30:00+02:00"
+                from datetime import datetime as _dt
+                tdt = _dt.fromisoformat(termin_str)
+                if tdt.tzinfo is None:
+                    tdt = BERLIN_TZ.localize(tdt)
+            except Exception as pe:
+                logger.warning(f"Reminder: cannot parse termin {termin_str}: {pe}")
+                continue
+
+            delta_min = (tdt - now_berlin).total_seconds() / 60.0
+            # Fenster: 75-105 Min vor Termin
+            if not (75 <= delta_min <= 105):
+                continue
+
+            lead_name = row[IDX_NAME] if len(row) > IDX_NAME else ""
+            lead_phone = row[IDX_PHONE] if len(row) > IDX_PHONE else ""
+            partner_name = (row[IDX_PARTNER] if len(row) > IDX_PARTNER else "").strip()
+            zweck = row[IDX_ZWECK] if len(row) > IDX_ZWECK else ""
+
+            # Termin als HH:MM formatieren (Berlin-Zeit)
+            tdt_b = tdt.astimezone(BERLIN_TZ)
+            zeit_str = tdt_b.strftime("%H:%M")
+            datum_str = tdt_b.strftime("%a, %d.%m.%Y")
+            wd_map = {"Mon":"Mo","Tue":"Di","Wed":"Mi","Thu":"Do","Fri":"Fr","Sat":"Sa","Sun":"So"}
+            for en,de in wd_map.items():
+                datum_str = datum_str.replace(en, de)
+
+            # Partner-Phone aus Partner_Konto
+            partner_phone = ""
+            p_rec = partners.get(partner_name.lower())
+            if p_rec:
+                partner_phone = p_rec.get("phone", "")
+
+            reminder_msg = (
+                f"⏰ *Erinnerung in 90 Min:*\n"
+                f"📅 {datum_str} um *{zeit_str} Uhr*\n\n"
+                f"👤 Lead: *{lead_name}*\n"
+                f"📞 +{lead_phone}\n"
+                f"📝 {zweck[:200]}\n\n"
+                f"Viel Erfolg! 💪"
+            )
+
+            sent_p = False
+            if partner_phone:
+                try:
+                    sent_p = send_whatsapp(partner_phone, reminder_msg, _skip_admin=True)
+                except Exception as we:
+                    logger.warning(f"Reminder Partner-WA Fehler: {we}")
+
+            # Info an Mathias
+            try:
+                admin_msg = f"⏰ Reminder gesendet → {partner_name} (Termin {zeit_str} mit {lead_name})"
+                send_whatsapp(MATZE_PHONE, admin_msg, _skip_admin=True)
+            except Exception as ae:
+                logger.warning(f"Reminder Admin-WA Fehler: {ae}")
+
+            # Markiere in Spalte M (1-based Spalte 13)
+            try:
+                marker = f"REMINDER_{now_berlin.strftime('%Y-%m-%d %H:%M')}"
+                if not sent_p:
+                    marker = f"REMINDER_NO_PARTNER_PHONE_{now_berlin.strftime('%H:%M')}"
+                ws.update_cell(i, 13, marker)
+                logger.info(f"⏰ Reminder gesendet: Z{i} {lead_name} → {partner_name} ({zeit_str})")
+            except Exception as ue:
+                logger.warning(f"Reminder cell-update Fehler: {ue}")
+
+    except Exception as e:
+        logger.error(f"❌ check_termin_reminders Fehler: {e}")
+
+
+
 # ─── Tägliche Erinnerungen 08:00 Uhr ──────────────────────
 def send_daily_reminders():
     logger.info("📅 Tägliche Erinnerungen werden gesendet...")
@@ -1747,6 +1856,8 @@ def startup_event():
     # APScheduler: täglich 08:00 Berlin
     scheduler = BackgroundScheduler(timezone=BERLIN_TZ)
     scheduler.add_job(send_daily_reminders, "cron", hour=8, minute=0)
+    # Termin-Reminder: alle 15 Min pruefen
+    scheduler.add_job(check_termin_reminders, "interval", minutes=15)
     scheduler.start()
     logger.info("⏰ Scheduler gestartet – täglich 08:00 Uhr")
 
