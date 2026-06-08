@@ -476,8 +476,8 @@ def send_whatsapp_buttons(phone: str, body_text: str, btn_anruf_id: str, btn_sel
             "type": "button",
             "body": {"text": body_text[:1024]},
             "action": {"buttons": [
-                {"type": "reply", "reply": {"id": btn_anruf_id[:256], "title": "☎️ Lina anrufen"}},
-                {"type": "reply", "reply": {"id": btn_selbst_id[:256], "title": "✋ Selbst melden"}},
+                {"type": "reply", "reply": {"id": btn_anruf_id[:256], "title": "📞 Anruf starten"}},
+                {"type": "reply", "reply": {"id": btn_selbst_id[:256], "title": "🙋 Ich kümmer mich"}},
             ]},
         },
     }
@@ -1701,7 +1701,7 @@ async def anruf_link(request: Request):
             ok = (r.status_code == 200)
         except Exception as e:
             logger.error(f"/anruf Trigger Fehler: {e}")
-    msg = (f"✅ Lina ruft {name} gleich an und bucht den Termin fuer dich."
+    msg = (f"✅ Anruf gestartet — {name} wird gleich kontaktiert."
            if ok else
            "⚠️ Konnte den Anruf gerade nicht starten - bitte nochmal tippen oder den Lead selbst kontaktieren.")
     return HTMLResponse(content=f"""<!doctype html><html lang=de><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Lina</title></head><body style="font-family:sans-serif;text-align:center;padding:48px 20px;background:#f7f7f7"><div style="max-width:420px;margin:0 auto;background:#fff;border-radius:16px;padding:32px;box-shadow:0 2px 12px rgba(0,0,0,.08)"><h2 style="margin:0 0 12px">{msg}</h2><p style="color:#666">Du kannst dieses Fenster jetzt schliessen.</p></div></body></html>""")
@@ -1797,7 +1797,7 @@ async def inbound_relay(request: Request):
                                           "leadName": lead_nm, "partnerName": partner_nm, "leadSource": "LR-ButtonCall"},
                                     timeout=8,
                                 )
-                                send_whatsapp(sender, f"✅ Top! Lina ruft {lead_nm} gleich an und bucht den Termin für dich.", _skip_admin=True)
+                                send_whatsapp(sender, f"✅ Top! Anruf gestartet, der Lead {lead_nm} wird gleich kontaktiert. Termin folgt.", _skip_admin=True)
                             except Exception as be:
                                 logger.error(f"❌ Button-Anruf-Trigger Fehler: {be}")
                                 send_whatsapp(sender, "⚠️ Konnte den Anruf gerade nicht starten, bitte nochmal tippen.", _skip_admin=True)
