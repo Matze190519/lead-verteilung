@@ -481,16 +481,21 @@ def send_whatsapp_buttons(phone: str, body_text: str, btn_anruf_id: str, btn_sel
             ]},
         },
     }
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=10)
-        if resp.status_code == 200:
-            logger.info(f"✅ Button-WhatsApp gesendet → {phone}")
-            return True
-        logger.warning(f"⚠️ Button-WA fehlgeschlagen {resp.status_code}: {resp.text[:200]}")
-        return False
-    except Exception as e:
-        logger.error(f"❌ Button-WA Exception: {e}")
-        return False
+    for _btn_try in range(3):
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=15)
+            if resp.status_code == 200:
+                logger.info(f"✅ Button-WhatsApp gesendet → {phone}")
+                return True
+            logger.warning(f"⚠️ Button-WA fehlgeschlagen {resp.status_code}: {resp.text[:200]}")
+            if resp.status_code >= 500 or "131000" in resp.text:
+                time.sleep(2)
+                continue
+            return False
+        except Exception as e:
+            logger.error(f"❌ Button-WA Exception: {e}")
+            time.sleep(2)
+    return False
 
 
 # ─── Partner lesen (mit Retry) ─────────────────────────────
