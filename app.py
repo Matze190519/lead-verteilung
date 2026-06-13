@@ -876,7 +876,7 @@ def process_stripe_payment(session: dict):
             # Board-Link nur einbauen wenn Token erfolgreich generiert
             board_link_block = ""
             if new_token:
-                board_url = f"https://lina-partner-board-lr.netlify.app/?p={new_token}"
+                board_url = f"https://lina-board-lr.netlify.app/?p={new_token}"
                 board_link_block = (
                     f"📱 *Dein persönliches Lead-Board:*\n"
                     f"👉 {board_url}\n"
