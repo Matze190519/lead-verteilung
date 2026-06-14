@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Mein Lead-Board · LR Lifestyle</title>
+<style>
+:root{--bg:#0a0e14;--card:#121823;--card2:#0e141d;--line:#243042;--txt:#eef2f7;--mut:#8b97a8;
+--cyan:#00e5ff;--green:#22c55e;--yellow:#fbbf24;--red:#f87171;--violet:#a78bfa;--orange:#fb923c}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+body{padding-bottom:40px}
+header{position:sticky;top:0;z-index:20;background:rgba(10,14,20,.93);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line);padding:14px 16px 10px}
+.hi{font-size:20px;font-weight:800}
+.hi b{background:linear-gradient(90deg,#00e5ff,#7dd3fc);-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{font-size:12.5px;color:var(--mut);margin-top:2px}
+.pills{display:flex;gap:7px;margin-top:12px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.pills::-webkit-scrollbar{display:none}
+.pill{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-size:13px;font-weight:600;color:var(--mut);cursor:pointer;user-select:none}
+.pill .n{font-weight:800;color:var(--txt)}
+.pill.on{border-color:var(--cyan);color:var(--txt);box-shadow:0 0 0 1px rgba(0,229,255,.25),0 0 18px rgba(0,229,255,.10)}
+.wrap{padding:12px 12px 0;max-width:560px;margin:0 auto}
+.sect{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin:18px 4px 8px}
+.card{background:linear-gradient(180deg,var(--card),var(--card2));border:1px solid var(--line);border-radius:18px;padding:14px;margin-bottom:12px;position:relative;overflow:hidden}
+.card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--mut)}
+.card.st-TERMIN::before{background:var(--green)}.card.st-NEU::before{background:var(--cyan)}
+.card.st-MAILBOX::before{background:var(--orange)}.card.st-VERPASST::before{background:var(--red)}
+.card.st-GESPROCHEN::before{background:var(--yellow)}.card.st-DONE::before{background:#374151}
+.card.done-dim{opacity:.55}
+.top{display:flex;align-items:flex-start;gap:10px}
+.who{flex:1;min-width:0}
+.nm{font-size:16.5px;font-weight:750;line-height:1.25}
+.ph{font-size:12.5px;color:var(--mut);margin-top:2px}
+.intr{display:inline-block;margin-top:6px;font-size:11.5px;font-weight:800;color:#a5f3fc;background:rgba(0,229,255,.08);border:1px solid rgba(0,229,255,.25);padding:3px 9px;border-radius:999px}
+.badge{flex:0 0 auto;font-size:11.5px;font-weight:800;padding:5px 10px;border-radius:999px;white-space:nowrap}
+.b-TERMIN{background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.35)}
+.b-NEU{background:rgba(0,229,255,.12);color:#67e8f9;border:1px solid rgba(0,229,255,.3)}
+.b-MAILBOX{background:rgba(251,146,60,.14);color:#fdba74;border:1px solid rgba(251,146,60,.35)}
+.b-VERPASST{background:rgba(248,113,113,.13);color:#fca5a5;border:1px solid rgba(248,113,113,.35)}
+.b-GESPROCHEN{background:rgba(251,191,36,.13);color:#fde047;border:1px solid rgba(251,191,36,.32)}
+.b-DONE{background:rgba(148,163,184,.12);color:#94a3b8;border:1px solid rgba(148,163,184,.25)}
+.next{margin-top:10px;font-size:13.5px;line-height:1.45;color:#cbd5e1;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:12px;padding:9px 11px}
+.next b{color:var(--txt)}
+.terminrow{margin-top:8px;font-size:13.5px;font-weight:800;color:#4ade80}
+.terminrow .today{margin-left:6px;background:#16a34a;color:#fff;font-size:10.5px;padding:2px 7px;border-radius:999px;vertical-align:1px}
+.mystatus{margin-top:8px;font-size:12px;color:var(--violet);font-weight:700}
+.acts{display:flex;gap:9px;margin-top:12px;flex-wrap:wrap}
+.acts .btn{flex:1 1 30%;min-width:92px}
+.btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;border:none;border-radius:13px;padding:11px 8px;font-size:14px;font-weight:800;cursor:pointer;color:#03131a}
+.btn small{font-size:10px;font-weight:600;opacity:.85}
+.btn-lina{background:linear-gradient(135deg,#00e5ff,#38bdf8);box-shadow:0 4px 18px rgba(0,229,255,.22)}
+.btn-wa{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;box-shadow:0 4px 18px rgba(34,197,94,.18)}
+.btn-voice{background:linear-gradient(135deg,#a78bfa,#7c3aed);color:#fff;box-shadow:0 4px 18px rgba(124,58,237,.22)}
+.btn-call{background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#1a1206;box-shadow:0 4px 18px rgba(245,158,11,.18);text-decoration:none}
+.lina-backup{width:100%;margin-top:9px;background:rgba(0,229,255,.07);border:1px solid rgba(0,229,255,.2);border-radius:11px;color:#7dd3fc;font-size:12.5px;font-weight:700;padding:9px;cursor:pointer}
+.lina-backup:active{transform:scale(.98)}
+.myvoice{background:#0d1420;border:1px solid rgba(167,139,250,.4);border-radius:12px;padding:13px;margin-bottom:12px}
+.myvoice h6{margin:0 0 6px;font-size:13px;color:#c4b5fd;font-weight:800}
+.myvoice #recBtn,.myvoice .rowbtn button{width:100%;background:linear-gradient(135deg,#a78bfa,#7c3aed);border:none;border-radius:10px;color:#fff;font-size:13.5px;font-weight:800;padding:11px;cursor:pointer}
+.btn:active{transform:scale(.97)}
+.more{margin-top:11px;width:100%;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:12px;color:#cbd5e1;font-size:13px;font-weight:800;padding:10px;cursor:pointer}
+.card.open .more{color:var(--cyan);border-color:rgba(0,229,255,.35)}
+.det{display:none;margin-top:10px;border-top:1px dashed var(--line);padding-top:11px}
+.card.open .det{display:block}
+.det h4{margin:0 0 6px;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+.sum{font-size:13.5px;line-height:1.55;color:#cbd5e1;margin-bottom:11px;white-space:pre-wrap}
+.strow{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:11px}
+.stbtn{font-size:12.5px;font-weight:700;padding:7px 11px;border-radius:999px;background:var(--card);border:1px solid var(--line);color:var(--mut);cursor:pointer}
+.stbtn.on{border-color:var(--violet);color:var(--violet)}
+.noterow{display:flex;gap:7px}
+.noterow input{flex:1;background:var(--card);border:1px solid var(--line);border-radius:10px;color:var(--txt);font-size:13.5px;padding:9px 11px;outline:none}
+.noterow button{background:var(--card);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:0 14px;font-weight:700;cursor:pointer}
+.ovl{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:40;display:none}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;background:#101620;border-radius:22px 22px 0 0;border-top:1px solid var(--line);max-height:84vh;display:none;flex-direction:column}
+.ovl.show{display:block}.sheet.show{display:flex}
+.shead{padding:14px 48px 6px 16px;position:relative;flex-shrink:0}
+.shx{position:absolute;right:12px;top:16px;width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.07);border:1px solid var(--line);color:#cbd5e1;font-size:16px;font-weight:800;cursor:pointer}
+.shead .grab{width:42px;height:4px;border-radius:99px;background:#2a3442;margin:0 auto 12px}
+.shead h3{margin:0;font-size:16px;font-weight:800}
+.shead p{margin:3px 0 0;font-size:12.5px;color:var(--mut)}
+.cats{display:flex;gap:7px;overflow-x:auto;padding:10px 14px 6px;scrollbar-width:none;flex-shrink:0}
+.cats::-webkit-scrollbar{display:none}
+.cat{flex:0 0 auto;font-size:12.5px;font-weight:800;padding:8px 13px;border-radius:999px;background:var(--card);border:1px solid var(--line);color:var(--mut);cursor:pointer;white-space:nowrap}
+.cat.on{border-color:var(--cyan);color:var(--txt)}
+.tpls{overflow-y:auto;min-height:0;-webkit-overflow-scrolling:touch;padding:6px 14px calc(28px + env(safe-area-inset-bottom))}
+.tpl{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+.tpl h5{margin:0 0 5px;font-size:13.5px;font-weight:800}
+.tpl .pv{margin:0 0 8px;font-size:12.8px;line-height:1.5;color:#9fb0c3;max-height:66px;overflow:hidden;white-space:pre-wrap}
+.tpl .pv.full{max-height:none}
+.tpl .pvmore{background:none;border:none;color:var(--cyan);font-size:12px;font-weight:700;padding:0 0 10px;cursor:pointer}
+.tpl .rowbtn{display:flex;gap:8px}
+.tpl a{flex:1;display:block;text-align:center;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;text-decoration:none;font-weight:800;font-size:13.5px;border-radius:11px;padding:10px}
+.voicebox{background:#0d1420;border:1px dashed rgba(0,229,255,.4);border-radius:12px;padding:12px;margin-bottom:10px}
+.voicebox h6{margin:0 0 6px;font-size:12px;color:#67e8f9;letter-spacing:.08em;text-transform:uppercase}
+.voicebox .script{font-size:15px;line-height:1.65;color:#e2e8f0;white-space:pre-wrap}
+.voicebox .tip{margin-top:9px;font-size:11.5px;color:var(--mut)}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(80px);background:#0d1f17;border:1px solid #14532d;color:#86efac;font-size:13.5px;font-weight:700;padding:11px 18px;border-radius:999px;z-index:60;transition:transform .25s;white-space:nowrap}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.empty{padding:60px 24px;text-align:center;color:var(--mut);font-size:14px;line-height:1.6}
+.loading{padding:70px 0;text-align:center;color:var(--mut)}
+.spin{width:30px;height:30px;border:3px solid var(--line);border-top-color:var(--cyan);border-radius:50%;margin:0 auto 14px;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.footer{max-width:560px;margin:24px auto 0;padding:0 16px;text-align:center;font-size:11.5px;color:#4b5563}
+.coach{background:linear-gradient(160deg,#0d1b2e,#101620);border:1px solid rgba(0,229,255,.28);border-radius:20px;padding:16px;margin-bottom:16px;box-shadow:0 6px 30px rgba(0,229,255,.07)}
+.coach .ct{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:850}
+.coach .streak{margin-left:auto;font-size:12.5px;font-weight:800;color:#fdba74;background:rgba(251,146,60,.1);border:1px solid rgba(251,146,60,.3);padding:4px 10px;border-radius:999px}
+.coach .cs{font-size:12.5px;color:var(--mut);margin-top:3px}
+.pbar{height:8px;background:#1a2332;border-radius:99px;margin:12px 0 4px;overflow:hidden}
+.pbar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#00e5ff,#22c55e);transition:width .4s}
+.plabel{font-size:11.5px;color:var(--mut);font-weight:700;text-align:right}
+.task{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:14px;padding:12px;margin-top:10px}
+.task .tn{font-size:14.5px;font-weight:800}
+.task .tn .fire{margin-left:6px;font-size:12px}
+.task .why{font-size:12.8px;color:#9fb0c3;line-height:1.45;margin-top:4px}
+.task .why b{color:#cbd5e1}
+.task .tact{display:flex;gap:7px;margin-top:10px}
+.task .ta{flex:1;border:none;border-radius:11px;padding:10px 6px;font-size:12.5px;font-weight:800;cursor:pointer}
+.ta-send{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff}
+.ta-lina{background:rgba(0,229,255,.12);color:#67e8f9;border:1px solid rgba(0,229,255,.3)!important}
+.ta-linamini{width:100%;margin-top:7px;background:transparent;border:1px solid rgba(0,229,255,.2);border-radius:9px;color:#7dd3fc;font-size:11.5px;font-weight:700;padding:7px;cursor:pointer}
+.ta-done{background:rgba(255,255,255,.05);color:var(--mut);border:1px solid var(--line)!important;flex:0 0 86px}
+.task.dn{opacity:.45}
+.task.dn .tn{text-decoration:line-through}
+.alldone{text-align:center;padding:18px 8px 8px;font-size:15px;font-weight:800;color:#4ade80}
+.alldone small{display:block;margin-top:4px;font-size:12px;color:var(--mut);font-weight:600}
+.cf{position:fixed;top:-12px;z-index:90;font-size:18px;animation:fall 1.6s ease-in forwards;pointer-events:none}
+@keyframes fall{to{transform:translateY(105vh) rotate(540deg);opacity:.7}}
+</style>
+</head>
+<body>
+<header>
+  <div class="hi">Hallo <b id="pname">…</b> 👋</div>
+  <div class="sub" id="updated">Lade deine Leads…</div>
+  <div class="pills" id="pills"></div>
+</header>
+<div class="wrap" id="coachwrap"></div>
+<div class="wrap" id="list"><div class="loading"><div class="spin"></div>Lade dein Board…</div></div>
+<div class="footer">LR Lifestyle Team · Lina KI · Daten live aus dem System<br>Fragen? Matze: wa.me/491715060008</div>
+<div class="ovl" id="ovl" onclick="closeSheet()"></div>
+<div class="sheet" id="sheet">
+  <div class="shead"><div class="grab"></div><button class="shx" onclick="closeSheet()">✕</button><h3 id="shTitle">Nachricht wählen</h3><p id="shSub"></p></div>
+  <div class="cats" id="cats"></div>
+  <div class="tpls" id="tpls"></div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const BASE='https://lina-partner-board-lr.netlify.app';
+const API=BASE+'/.netlify/functions/board';
+let token=new URLSearchParams(location.search).get('p')||'';
+try{if(token){localStorage.setItem('lb_token',token)}else{token=localStorage.getItem('lb_token')||''}}catch(e){}
+const LIB=[{"id": "a1_erstkontakt", "typ": "text", "t": "🚗 AUTO 1. Erstkontakt (sofort)", "u": "", "b": "Hey {NAME} 👋\n\nschön dass du dich gemeldet hast! Hier ist {PARTNER} vom LR Lifestyle Team.\n\nDu hast dich fürs 🚗 Autokonzept interessiert – top!\n\nFahr deinen Traumwagen bis zu 80 % günstiger, ohne Anzahlung. Über 50.000 Autos wurden bereits an LR-Partner übergeben. Und das Beste: Das Auto finanziert sich über ein nebenberufliches Einkommen, bei dem ich dich persönlich + mit KI-Unterstützung begleite.\n\nDamit ich dir das Richtige schicke: Passt dir ein kurzes Telefonat (5–10 Min), oder soll ich dir vorab ein kurzes Info-Video schicken und wir telefonieren danach?\n\n{PARTNER}"}, {"id": "a2_reminder", "typ": "text", "t": "🚗 AUTO 2. Reminder (+1h)", "u": "", "b": "Hi {NAME},\n\nwollte nur kurz schauen ob meine Nachricht angekommen ist 😊\n\nKein Stress — antworte wenn's passt.\n\n{PARTNER} 🚗"}, {"id": "a3_video", "typ": "text", "t": "🚗 AUTO 3. Video-Push (Tag 1)", "u": "https://youtu.be/t4zv4rNNCQw", "b": "Hi {NAME},\n\nviele denken bei der Anzeige erstmal: „Wo ist der Haken?\"\nGing mir damals genauso.\n\nDeshalb schicke ich dir das Video, das ich selbst bekommen habe als ich angefangen habe.\n\n👉 https://youtu.be/t4zv4rNNCQw\n\nDauert 12 Minuten.\nDanach weißt du sofort ob das interessant für dich ist — oder nicht.\n\nSchreib mir einfach „gesehen\" wenn du durch bist.\n\n{PARTNER}"}, {"id": "a4_nach_video", "typ": "text", "t": "🚗 AUTO 4. Nach dem Video (Tag 2)", "u": "", "b": "Hi {NAME},\n\nehrlich gefragt:\nWas hat dir am besten gefallen?\nUnd was macht dich noch skeptisch?\n\nGenau da kann ich dir weiterhelfen.\n\n{PARTNER}"}, {"id": "a5_story", "typ": "text", "t": "🚗 AUTO 5. Story (Tag 4)", "u": "", "b": "{NAME},\n\ndie meisten bei uns sind ganz normale Leute.\nHandwerker. Angestellte. Selbstständige. Eltern.\n\nDie starten nicht weil sie Vertrieb lieben.\nDie starten weil sie mehr Möglichkeiten wollen — und das Auto ist für viele einfach der Beweis dass es funktioniert.\n\nWas hat dich eigentlich auf die Anzeige gebracht?\n\n{PARTNER} 🚗"}, {"id": "a6_sanft", "typ": "text", "t": "🚗 AUTO 6. Sanfte Entscheidung (Tag 6)", "u": "", "b": "Hi {NAME},\n\nehrliche Frage — ich will dich nicht nerven:\n\nPasst das Timing gerade nicht?\nOder fehlt dir noch eine konkrete Info?\n\nBeides ist ok, sag's mir einfach.\n\n{PARTNER}"}, {"id": "a7_ende", "typ": "text", "t": "🚗 AUTO 7. Würdevoll raus (Tag 9)", "u": "", "b": "{NAME},\n\nich nehm dich aus meinem aktiven Verteiler raus — alles gut.\n\nFalls du irgendwann wieder Lust hast, schreib einfach „Auto\" zurück und ich bin da.\n\nAllzeit gute Fahrt 🚗\n{PARTNER}"}, {"id": "b1_erstkontakt", "typ": "text", "t": "💰 BIZ 1. Erstkontakt (sofort)", "u": "", "b": "Hey {NAME} 👋\n\nschön dass du dich gemeldet hast! Hier ist {PARTNER} vom LR Lifestyle Team.\n\nDu interessierst dich fürs 💰 Online-Business von zuhause – sehr gut!\n\nNebenbei 250–2.000 € verdienen, ohne Druck, ohne Verpflichtungen, mit freier Zeiteinteilung. Du bekommst von mir persönlich Unterstützung, dazu KI-Hilfe und ein fast komplett automatisiertes System. Gerade suchen viele ein zweites Standbein von zuhause – es ist einfacher als die meisten denken 💪\n\nDamit ich dir das Richtige schicke: Passt dir ein kurzes Telefonat (5–10 Min), oder soll ich dir vorab ein kurzes Info-Video schicken und wir telefonieren danach?\n\n{PARTNER}"}, {"id": "b2_reminder", "typ": "text", "t": "💰 BIZ 2. Reminder (+1h)", "u": "", "b": "Hi {NAME},\n\nwollte kurz schauen ob meine Nachricht angekommen ist 😊\n\nKein Druck — heute Abend, morgen, übermorgen, alles ok.\n\n{PARTNER}"}, {"id": "b3_video", "typ": "text", "t": "💰 BIZ 3. Video-Push (Tag 1)", "u": "https://youtu.be/t4zv4rNNCQw", "b": "Hi {NAME},\n\nbevor ich dir hier Romane schreibe:\nSchau dir kurz das Video an.\n\n👉 https://youtu.be/t4zv4rNNCQw\n\nDanach hast du wahrscheinlich schon 80 % deiner Fragen beantwortet.\n\nWenn du es gesehen hast, schreib einfach „gesehen\" — dann sprechen wir über deine Situation.\n\n{PARTNER}"}, {"id": "b4_nach_video", "typ": "text", "t": "💰 BIZ 4. Nach dem Video (Tag 2)", "u": "", "b": "Hi {NAME},\n\nehrlich gefragt:\nWas hat dir am besten gefallen?\nUnd was macht dich noch skeptisch?\n\nGenau da kann ich dir weiterhelfen.\n\n{PARTNER}"}, {"id": "b5_story", "typ": "text", "t": "💰 BIZ 5. Story (Tag 4)", "u": "", "b": "{NAME},\n\ndie meisten bei uns sind ganz normale Leute.\nPflegekräfte. Handwerker. Angestellte. Eltern.\n\nDie starten nicht weil sie Vertrieb lieben.\nDie starten weil sie mehr Möglichkeiten wollen.\n\nWas hat dich eigentlich auf die Anzeige gebracht?\n\n{PARTNER}"}, {"id": "b6_sanft", "typ": "text", "t": "💰 BIZ 6. Sanfte Entscheidung (Tag 6)", "u": "", "b": "Hi {NAME},\n\nehrliche Frage — ich will dich nicht zutexten:\n\nPasst das gerade zeitlich nicht?\nOder fehlt dir noch eine konkrete Info?\n\nBeides ist völlig ok, sag's mir einfach.\n\n{PARTNER}"}, {"id": "b7_ende", "typ": "text", "t": "💰 BIZ 7. Würdevoll raus (Tag 9)", "u": "", "b": "{NAME},\n\nich nehm dich aus meinem aktiven Verteiler raus.\n\nFalls du später nochmal Lust hast, schreib einfach „LR\" und ich bin da.\n\nAlles Gute dir 💼\n{PARTNER}"}, {"id": "c1_erstkontakt", "typ": "text", "t": "🚀 HYBRID 1. Erstkontakt (sofort)", "u": "", "b": "Hey {NAME} 👋\n\nschön dass du dich gemeldet hast! Hier ist {PARTNER} vom LR Lifestyle Team.\n\nDamit ich dir genau das Richtige schicken kann: Wofür interessierst du dich?\n\n💰 Online-Business von zuhause\nNebenbei 250–2.000 € verdienen – ohne Druck, ohne Verpflichtungen, mit freier Zeiteinteilung. Du bekommst von mir persönlich Unterstützung, dazu KI-Hilfe und ein fast komplett automatisiertes System.\n\n🚗 Autokonzept\nFahr deinen Traumwagen bis zu 80 % günstiger – ohne Anzahlung. Über 50.000 Autos wurden bereits an LR-Partner übergeben.\n\n🚀 Oder beides\n\nSchreib mir einfach kurz was dich anspricht. Und: passt dir ein kurzes Telefonat (5–10 Min), oder soll ich dir vorab ein kurzes Info-Video schicken und wir telefonieren danach?\n\nViele suchen gerade ein zweites Standbein von zuhause – es ist einfacher als die meisten denken 💪\n\n{PARTNER}"}, {"id": "c2_reminder", "typ": "text", "t": "🚀 HYBRID 2. Reminder (+1h)", "u": "", "b": "Hi {NAME},\n\nwollte nur kurz checken ob meine Nachricht angekommen ist 😊\n\nKein Druck — antworte wenn's passt.\n\n{PARTNER} 🚀"}, {"id": "c3_video", "typ": "text", "t": "🚀 HYBRID 3. Video-Push (Tag 1)", "u": "https://youtu.be/t4zv4rNNCQw", "b": "Hi {NAME},\n\nich begleite dich durch den ganzen Prozess.\n\nDamit du erstmal einen Überblick bekommst — hier das Video mit dem wir alle im Team arbeiten:\n\n👉 https://youtu.be/t4zv4rNNCQw\n\n12 Minuten. Danach schauen wir gemeinsam ob das für dich Sinn macht.\n\nSchreib „gesehen\" wenn du durch bist.\n\n{PARTNER}"}, {"id": "c4_nach_video", "typ": "text", "t": "🚀 HYBRID 4. Nach dem Video (Tag 2)", "u": "", "b": "Hi {NAME},\n\nehrlich gefragt:\nWas hat dir am besten gefallen?\nUnd was macht dich noch skeptisch?\n\nGenau da kann ich dir weiterhelfen.\n\n{PARTNER}"}, {"id": "c5_story", "typ": "text", "t": "🚀 HYBRID 5. Story (Tag 4)", "u": "", "b": "{NAME},\n\ndie meisten bei uns sind ganz normale Leute.\nHandwerker. Angestellte. Selbstständige. Eltern.\n\nDie starten nicht weil sie Vertrieb lieben.\nDie starten weil sie mehr Möglichkeiten wollen.\n\nWas hat dich eigentlich auf die Anzeige gebracht?\n\n{PARTNER} 🚀"}, {"id": "c6_sanft", "typ": "text", "t": "🚀 HYBRID 6. Sanfte Entscheidung (Tag 6)", "u": "", "b": "Hi {NAME},\n\nehrlich gefragt:\n\nPasst das Timing gerade nicht?\nOder fehlt dir noch eine konkrete Info zu Auto oder Business?\n\nSag's mir einfach.\n\n{PARTNER}"}, {"id": "c7_ende", "typ": "text", "t": "🚀 HYBRID 7. Würdevoll raus (Tag 9)", "u": "", "b": "{NAME},\n\nich nehm dich aus dem aktiven Verteiler raus.\n\nFalls du später Auto + Business wieder anschauen willst — schreib einfach „LR\" und ich bin da.\n\nAlles Gute 🚀\n{PARTNER}"}, {"id": "u1_strecke", "typ": "text", "t": "🌐 UNI Strecken-Klärung (bei Unsicherheit)", "u": "", "b": "Hi {NAME},\n\nkurz noch nachgefragt damit ich dir das Richtige schick — bei dir geht es eher um…\n\n🚗 Den Firmenwagen ohne Anzahlung\n💰 Ein nebenberufliches Einkommen\n🚀 Beides — Auto + Business\n🤔 Ich bin mir noch nicht ganz sicher\n\nAntworte einfach 🚗 / 💰 / 🚀 / 🤔\n\n{PARTNER}"}, {"id": "v1_erstkontakt", "typ": "voice", "t": "🎙️ Voice 1. Erstkontakt (~15 Sek)", "u": "", "b": "SKRIPT zum Aufnehmen:\n\n„Hi {NAME}, hier ist {PARTNER}.\nDanke erstmal für deine Anfrage.\nIch wollte dir kurz persönlich Bescheid geben dass ich deine Nachricht gesehen habe.\nSchau dir alles ganz entspannt an — ich melde mich nicht im Minutentakt, keine Sorge.\nBis später.\" 😄\n\nTIPP: Sprich es dreimal probehalber — nimm den dritten Versuch.\nLocker, kein Verkäufer-Ton. Wie an einen Kumpel.\n\nWARUM ES FUNKTIONIERT:\nAntwortquote steigt massiv weil der Interessent sofort merkt: das ist ein Mensch, kein Bot."}, {"id": "v2_nach_video", "typ": "voice", "t": "🎙️ Voice 2. Nach dem Video (~20 Sek)", "u": "", "b": "SKRIPT:\n\n„Hi {NAME}, hier ist {PARTNER}.\nIch hab gesehen du hast dir das Video angeschaut — danke dafür.\nMich würde echt interessieren: Was war dein erster Gedanke?\nWas hat dich abgeholt, was war komisch?\nSprich mir kurz was rein, dann antworte ich dir gleich persönlich.\"\n\nTIPP: Sprich es dreimal — nimm den dritten Versuch."}, {"id": "v3_termin", "typ": "voice", "t": "🎙️ Voice 3. Termin anbahnen (~15 Sek)", "u": "", "b": "SKRIPT:\n\n„Hi {NAME}, kurze Frage —\nwenn wir morgen oder übermorgen mal kurz telefonieren,\nwas wäre dein bestes Zeitfenster?\nVormittag, Mittag, Abend?\nSchreib mir kurz, dann block ich dir was.\"\n\nWICHTIG: Frag NICHT „hast du Zeit?\" — frag nach dem konkreten Fenster.\nDas erhöht die Zusagequote deutlich."}, {"id": "v4_team_bruecke", "typ": "voice", "t": "🎙️ Voice 4. Team-Brücke (~25 Sek)", "u": "", "b": "SKRIPT:\n\n„{NAME}, eine Sache noch —\nbei mir im Team ist gerade jemand, der vor ein paar Monaten genau in deiner Situation war.\nWenn du willst, verbind ich euch kurz — dann hörst du das aus erster Hand, nicht von mir.\nSag einfach Bescheid.\"\n\nNUR NUTZEN: wenn du schon einen passenden Team-Partner im Kopf hast."}, {"id": "m01_12min_gv", "typ": "video", "t": "🎬 12-Min Mathias-Geschäftsvorstellung (Hauptvideo)", "u": "https://youtu.be/t4zv4rNNCQw", "b": "Direkt-Link: https://youtu.be/t4zv4rNNCQw\n\nWANN BENUTZEN: Tag 1 (nach Erstkontakt-Antwort).\nINHALT: Komplette Geschäftsvorstellung von Mathias (12 Min).\nPASST FÜR: alle 3 Strecken (Auto / Business / Hybrid)."}, {"id": "m02_mathias_geschichte", "typ": "video", "t": "🎬 Mathias Geschichte (Dachdecker → Mallorca)", "u": "https://youtu.be/fGd5jwI1EJo", "b": "Direkt-Link: https://youtu.be/fGd5jwI1EJo\n\nDIE STÄRKSTE WAFFE im Team.\nDachdecker → Handyläden → 12 Mitarbeiter → Neustart nach Corona → Mallorca → ortsunabhängig.\n\nWANN BENUTZEN: wenn der Interessent skeptisch ist „klingt zu schön\" — die Story zeigt: echt, hart erarbeitet, kein Lottoschein."}, {"id": "m03_lr_geschaeftsvorstellung", "typ": "video", "t": "🎬 LR Geschäftsvorstellung (allgemein)", "u": "https://youtu.be/EhyLctO-u5A", "b": "Direkt-Link: https://youtu.be/EhyLctO-u5A\n\nLR Health & Beauty als Firma vorgestellt.\nWANN BENUTZEN: bei Fragen zur Firma, zur Seriosität, zum Hintergrund."}, {"id": "m04_aloe_qualitaet", "typ": "video", "t": "🎬 LR Aloe Vera Qualität (Produkte)", "u": "https://youtu.be/RC2EIzu0enc", "b": "Direkt-Link: https://youtu.be/RC2EIzu0enc\n\nLR Aloe Vera & Produkt-Qualität.\nWANN BENUTZEN: wenn der Lead nach Produkten fragt oder skeptisch wegen „Network mit Produkten\" ist."}, {"id": "m05_orgaleiter", "typ": "video", "t": "🎬 Werde LR Orgaleiter", "u": "https://youtu.be/Kw4_NXnXMt8", "b": "Direkt-Link: https://youtu.be/Kw4_NXnXMt8\n\nKarriere-Stufe Orgaleiter erklärt.\nWANN BENUTZEN: für Leads die wissen wollen wo die Reise hingeht — Karriere-Pfad."}, {"id": "m06_events", "typ": "video", "t": "🎬 LR Events", "u": "https://youtu.be/NfI_6dsHJ3Y", "b": "Direkt-Link: https://youtu.be/NfI_6dsHJ3Y\n\nLR Team-Events.\nWANN BENUTZEN: zeigen dass Community + Spass dazu gehören (nicht nur Arbeit)."}, {"id": "m07_fast_track", "typ": "video", "t": "🎬 LR Fast Track Bonus", "u": "https://youtu.be/IRwjCKKovKo", "b": "Direkt-Link: https://youtu.be/IRwjCKKovKo\n\nFast Track Bonus erklärt — die Mechanik der schnellen Boni.\nWANN BENUTZEN: für Leads die schnellen Cashflow wollen (Mehr-Geld-Typ)."}, {"id": "m08_lina_erklaert", "typ": "video", "t": "🎬 Lina erklärt LR", "u": "https://youtu.be/y-1Nl9J-v_U", "b": "Direkt-Link: https://youtu.be/y-1Nl9J-v_U\n\nLina (KI-Assistentin) erklärt LR.\nWANN BENUTZEN: für tech-affine Leads die die KI-Komponente interessant finden."}, {"id": "m09_autokonzept", "typ": "video", "t": "🎬 LR Autokonzept (Auto-Fokus)", "u": "https://youtu.be/e2uBas7Uklo", "b": "Direkt-Link: https://youtu.be/e2uBas7Uklo\n\nDas LR Autokonzept im Detail.\nWANN BENUTZEN: für AUTO-Leads die mehr zur Mechanik des Auto-Programms wissen wollen."}, {"id": "m10_team_song", "typ": "video", "t": "🎬 LR Lifestyle Team Song", "u": "https://youtu.be/Fd_JtW5UmzM", "b": "Direkt-Link: https://youtu.be/Fd_JtW5UmzM\n\nLR Lifestyle Team Song.\nWANN BENUTZEN: am Ende der Reise als „Welcome to the family\" oder zum Aufbauen der Team-Identität."}, {"id": "l1_lrlifestyle_pro", "typ": "link", "t": "🔗 LR Lifestyle Team Übersicht", "u": "https://lrlifestyle.pro", "b": "Hi {NAME}, hier alles über das LR Lifestyle Team auf einen Blick: https://lrlifestyle.pro\n\n{PARTNER}"}, {"id": "l2_lrjob_net", "typ": "link", "t": "🔗 LR Job (Bonus + Auto)", "u": "https://lr-job.net", "b": "Hi {NAME}, falls du nochmal in Ruhe lesen willst — Bonus + Auto-Programm erklärt: https://lr-job.net\n\n{PARTNER}"}];
+const VIDEO='https://youtu.be/t4zv4rNNCQw';
+
+let STATE={partner:'',leads:[],filter:'PRIO'};
+let MYST={};try{MYST=JSON.parse(localStorage.getItem('lb_myst')||'{}')}catch(e){MYST={}}
+let CURRENT=null,CURCAT='emp',COACH_DONE_ID=null;
+
+const $=s=>document.querySelector(s);
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600)}
+function esc(s){return String(s||'').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}
+function firstName(n){return String(n||'').trim().split(/\s+/)[0]||''}
+function digits(p){return String(p||'').replace(/\D/g,'')}
+function fmtTs(ts){if(!ts)return'';const d=ts.slice(0,10).split('-');return d.length===3?d[2]+'.'+d[1]+'.':''}
+const WD=['So','Mo','Di','Mi','Do','Fr','Sa'];
+function fmtTermin(t){
+  if(!t)return'';
+  const m=String(t).match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if(m){const d=new Date(+m[1],+m[2]-1,+m[3]);return WD[d.getDay()]+' '+m[3]+'.'+m[2]+'., '+m[4]+':'+m[5]+' Uhr'}
+  return t;
+}
+function terminToday(t){const m=String(t).match(/(\d{4})-(\d{2})-(\d{2})/);if(!m)return false;
+  const n=new Date();return +m[3]===n.getDate()&&+m[2]===n.getMonth()+1&&+m[1]===n.getFullYear()}
+
+function interest(l){
+  const s=((l.summary||'')).toLowerCase();
+  const auto=/auto|fahrzeug|firmenwagen|wagen/.test(s);
+  const biz=/business|online|einkommen|geld|verdienen|nebenbei|selbstst/.test(s);
+  if(auto&&biz)return'c';if(auto)return'a';if(biz)return'b';return'';
+}
+const INTR={a:'🚗 Interesse: Auto',b:'💰 Interesse: Online-Business',c:'🚀 Interesse: Auto + Business'};
+
+function cat(l){
+  const my=MYST[digits(l.phone)];
+  if(my&&['Kunde','Kein Interesse','Tot'].includes(my))return'DONE';
+  const k=l.statusKey||'',s=(l.summary||'').toLowerCase();
+  if(k==='ANGERUFEN_TERMIN')return'TERMIN';
+  if(k==='MAILBOX')return'MAILBOX';
+  if(k==='GESPROCHEN_KEIN_TERMIN')return(/mailbox|anrufbeantworter|voicemail/.test(s))?'MAILBOX':'GESPROCHEN';
+  if(k==='NICHT_ERREICHT')return'VERPASST';
+  return'NEU';
+}
+const META={
+ TERMIN:{b:'🟢 Termin gebucht',next:'<b>Lina hat den Termin für dich gebucht.</b> Schick eine kurze Bestätigung – das senkt No-Shows deutlich.'},
+ NEU:{b:'⏳ Neu – wartet',next:'<b>Frischer Lead.</b> Lass Lina anrufen – oder schreib direkt die Erstnachricht.'},
+ MAILBOX:{b:'📭 Mailbox',next:'<b>Lina ist auf der Mailbox gelandet</b> – nicht persönlich gesprochen! Per WhatsApp nachfassen oder später nochmal anrufen lassen.'},
+ VERPASST:{b:'🔴 Nicht erreicht',next:'<b>Niemand ist rangegangen.</b> Schreib eine WhatsApp – das öffnet die Tür für den nächsten Anruf.'},
+ GESPROCHEN:{b:'🟡 Gesprochen',next:'<b>Lina hat gesprochen, aber noch kein Termin.</b> Lies unten die Zusammenfassung und fass persönlich nach.'},
+ DONE:{b:'✅ Abgeschlossen',next:'Von dir als erledigt markiert.'}
+};
+const PRIO={TERMIN:0,NEU:1,MAILBOX:2,VERPASST:3,GESPROCHEN:4,DONE:9};
+
+async function apiGet(cmd){
+  const r=await fetch(API+'?p='+encodeURIComponent(token)+(cmd?'&cmd='+cmd:''),{cache:'no-store'});
+  if(r.status===403)throw new Error('Dein Zugang ist noch nicht freigeschaltet — schreib kurz Matze: wa.me/491715060008');
+  if(!r.ok)throw new Error('HTTP '+r.status);return r.json();
+}
+async function apiPost(action,payload){try{
+  await fetch(API+'?cmd=action',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({p:token,phone:CURRENT&&CURRENT.phone,name:CURRENT&&CURRENT.lead,action,payload})});
+}catch(e){}}
+
+async function load(){
+  if(!token){$('#list').innerHTML='<div class="empty">🔑 <b>Zugangscode fehlt</b><br><br><input id="tokIn" placeholder="Code aus deinem Board-Link" style="width:100%;max-width:320px;background:var(--card);border:1px solid var(--line);border-radius:12px;color:var(--txt);font-size:14px;padding:12px 14px;outline:none;text-align:center"><br><br><button onclick="saveTok()" style="background:linear-gradient(135deg,#00e5ff,#38bdf8);border:none;border-radius:12px;color:#03131a;font-weight:800;font-size:14px;padding:12px 26px;cursor:pointer">Board öffnen</button></div>';return}
+  try{
+    const d=await apiGet('');
+    STATE.partner=d.partner||'Partner';
+    let leads=Array.isArray(d.leads)?d.leads:[];
+    try{const n=await apiGet('newleads');
+      if(Array.isArray(n.leads)){const seen=new Set(leads.map(l=>digits(l.phone)));
+        for(const p of n.leads){const ph=digits(p.phone);if(ph&&!seen.has(ph)){leads.push(p);seen.add(ph)}}}}catch(e){}
+    STATE.leads=leads;
+    $('#pname').textContent=STATE.partner.split(' ')[0];
+    $('#updated').textContent='Stand: gerade eben · '+leads.length+' Leads';
+    render();
+  }catch(e){$('#list').innerHTML='<div class="empty">😕 '+esc(e.message)+'</div>'}
+}
+function saveTok(){const v=document.getElementById('tokIn').value.trim();if(!v)return;
+  try{localStorage.setItem('lb_token',v)}catch(e){};token=v;load()}
+
+function counts(){const c={PRIO:STATE.leads.length,TERMIN:0,NEU:0,NACHFASSEN:0,GESPROCHEN:0,DONE:0};
+ for(const l of STATE.leads){const k=cat(l);
+  if(k==='TERMIN')c.TERMIN++;else if(k==='NEU')c.NEU++;
+  else if(k==='MAILBOX'||k==='VERPASST')c.NACHFASSEN++;
+  else if(k==='GESPROCHEN')c.GESPROCHEN++;else c.DONE++}return c}
+function renderPills(){const c=counts();
+ const defs=[['PRIO','Alle',c.PRIO],['TERMIN','🟢 Termine',c.TERMIN],['NEU','⏳ Neu',c.NEU],
+  ['NACHFASSEN','📞 Nachfassen',c.NACHFASSEN],['GESPROCHEN','🟡 Gesprochen',c.GESPROCHEN],['DONE','✅ Erledigt',c.DONE]];
+ $('#pills').innerHTML=defs.map(d=>'<div class="pill'+(STATE.filter===d[0]?' on':'')+'" onclick="setF(\''+d[0]+'\')">'+d[1]+' <span class="n">'+d[2]+'</span></div>').join('')}
+function setF(f){STATE.filter=f;render()}
+function visible(){let arr=STATE.leads.slice();
+ if(STATE.filter==='NACHFASSEN')arr=arr.filter(l=>['MAILBOX','VERPASST'].includes(cat(l)));
+ else if(STATE.filter!=='PRIO')arr=arr.filter(l=>cat(l)===STATE.filter);
+ arr.sort((a,b)=>{const pa=PRIO[cat(a)],pb=PRIO[cat(b)];if(pa!==pb)return pa-pb;
+  return String(b.ts||'').localeCompare(String(a.ts||''))});return arr}
+function render(){
+ renderPills();renderCoach();const arr=visible();
+ if(!arr.length){$('#list').innerHTML='<div class="empty">Hier ist gerade nichts. 🎉<br>Tippe oben auf „Alle".</div>';return}
+ let html='',lastCat='';
+ for(const l of arr){
+  const k=cat(l),m=META[k],ph=digits(l.phone),my=MYST[ph]||'',itr=interest(l);
+  if(STATE.filter==='PRIO'&&k!==lastCat){html+='<div class="sect">'+m.b+'</div>';lastCat=k}
+  html+='<div class="card st-'+k+(k==='DONE'?' done-dim':'')+'" id="c'+ph+'">'
+   +'<div class="top"><div class="who"><div class="nm">'+esc(l.lead||'(ohne Name)')+'</div>'
+   +'<div class="ph">+'+ph+(l.ts?' · '+fmtTs(l.ts):'')+'</div>'
+   +(itr?'<span class="intr">'+INTR[itr]+'</span>':'')+'</div>'
+   +'<div class="badge b-'+k+'">'+m.b+'</div></div>'
+   +(l.termin?'<div class="terminrow">🗓️ '+esc(fmtTermin(l.termin))+(terminToday(l.termin)?'<span class="today">HEUTE</span>':'')+'</div>':'')
+   +(my?'<div class="mystatus">📌 Dein Status: '+esc(my)+'</div>':'')
+   +'<div class="next">'+coachNext(l,k)+'</div>'
+   +'<div class="acts">'
+   +'<button class="btn btn-voice" onclick="openTpl(\''+ph+'\',\'v\')">🎙️ Sprachnachricht<small>persönlich – schafft Vertrauen</small></button>'
+   +'<button class="btn btn-wa" onclick="openTpl(\''+ph+'\')">💬 WhatsApp schreiben<small>persönlicher Text + Video + Termin</small></button>'
+   +'<a class="btn btn-call" href="tel:+'+digits(ph)+'">📞 Selbst anrufen<small>direkter Draht – am stärksten</small></a>'
+   +'</div>'
+   +(l.termin?'':'<button class="lina-backup" onclick="linaCall(\''+ph+'\')">🤖 Keine Zeit? Lina nochmal anrufen lassen</button>')
+   +'<button class="more" onclick="tgl(\''+ph+'\')">📋 Verlauf, Status & Notiz öffnen</button>'
+   +'<div class="det">'
+   +'<h4>Was ist passiert?</h4><div class="sum">'+esc(l.summary||'Noch kein Anruf-Ergebnis.')+'</div>'
+   +'<h4>Dein Status</h4><div class="strow">'+['Interessiert','Termin','Spaeter melden','Kunde','Kein Interesse','Tot'].map(s=>
+    '<button class="stbtn'+(my===s?' on':'')+'" onclick="setSt(\''+ph+'\',\''+s+'\')">'+s.replace('Spaeter','Später')+'</button>').join('')+'</div>'
+   +'<h4>Notiz</h4>'+((NOTES[ph]||[]).length?'<div class="sum">'+NOTES[ph].map(n=>'📝 '+esc(n)).join('<br>')+'</div>':'')
+   +'<div class="noterow"><input id="n'+ph+'" placeholder="z.B. will Infos zum Auto…"><button onclick="note(\''+ph+'\')">💾</button></div>'
+   +'</div></div>';
+ }
+ $('#list').innerHTML=html;
+}
+function tgl(ph){$('#c'+ph).classList.toggle('open')}
+function coachNext(l,k){
+ const nm=firstName(l.lead)||'der Lead';
+ if(k==='TERMIN')return'<b>🟢 Termin steht mit '+nm+'.</b> Schick eine kurze Bestätigung per Sprachnachricht – das senkt No-Shows enorm und baut schon vor dem Gespräch Vertrauen auf.';
+ if(k==='GESPROCHEN')return'<b>🗣️ Du hast mit '+nm+' gesprochen – jetzt zählt die persönliche Note.</b> Eine kurze Sprachnachricht wirkt stärker als jeder Text. Schlag direkt 2 Termine vor (heute / morgen).';
+ if(k==='MAILBOX')return'<b>📭 Lina ist bei '+nm+' auf der Mailbox gelandet.</b> Die meisten gehen beim ersten Mal nicht ran – völlig normal. Jetzt die persönliche Note: Sprachnachricht schicken (\"ich erreich dich auch nicht 😅\") + Video + Terminvorschlag.';
+ if(k==='VERPASST')return'<b>🔴 '+nm+' wurde nicht erreicht.</b> Kein Problem – jetzt kommst DU ins Spiel. Eine persönliche Sprachnachricht schafft das Vertrauen, das Lina nicht kann. Tipp: zwischen 12–16 Uhr heben die meisten ab.';
+ if(k==='NEU')return'<b>⏳ '+nm+' ist frisch reingekommen.</b> Am besten gleich persönlich melden – eine Sprachnachricht oder ein kurzer Text holt '+nm+' am besten ab. Lina ist dein Backup, falls du grad keine Zeit hast.';
+ return META[k]?META[k].next:'';
+}
+function findLead(ph){return STATE.leads.find(l=>digits(l.phone)===ph)}
+
+const CALLHOOK='https://hook.eu2.make.com/gc3hfv8iww2vi9nbpfdgfyod8smwzbso';
+async function fireCall(l){
+ try{
+  const r=await fetch(CALLHOOK,{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({phoneNumber:'+'+digits(l.phone),leadName:l.lead||'Interessent',
+    partnerName:STATE.partner,leadSource:'LR-ReCall-Board'})});
+  return r.ok;
+ }catch(e){return false}
+}
+async function linaCall(ph){
+ const l=findLead(ph);if(!l)return;CURRENT=l;
+ if(!confirm('🤖 Lina ruft jetzt '+(l.lead||'den Lead')+' an.\nErgebnis kommt per WhatsApp und hier ins Board.\n\nStarten?'))return;
+ const ok=await fireCall(l);
+ toast(ok?'✅ Lina ruft jetzt an – Ergebnis kommt per WhatsApp':'⚠️ Anruf konnte nicht gestartet werden – nochmal versuchen');}
+function setSt(ph,s){const l=findLead(ph);CURRENT=l;
+ if(MYST[ph]===s)delete MYST[ph];else MYST[ph]=s;
+ try{localStorage.setItem('lb_myst',JSON.stringify(MYST))}catch(e){}
+ apiPost('status',{status:MYST[ph]||''});render();toast(MYST[ph]?'📌 '+s:'Status entfernt')}
+let NOTES={};try{NOTES=JSON.parse(localStorage.getItem('lb_notes')||'{}')}catch(e){NOTES={}}
+function note(ph){const v=$('#n'+ph).value.trim();if(!v)return;
+ const l=findLead(ph);CURRENT=l;
+ const d=new Date();NOTES[ph]=(NOTES[ph]||[]);NOTES[ph].push(('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'. '+v);
+ try{localStorage.setItem('lb_notes',JSON.stringify(NOTES))}catch(e){}
+ apiPost('note',{text:v});$('#n'+ph).value='';render();toast('💾 Notiz gespeichert')}
+
+function stageNums(k){return{NEU:['1','2'],MAILBOX:['1','3'],VERPASST:['1','3'],GESPROCHEN:['4','5'],DONE:['6','7']}[k]||['1','2']}
+function fill(t,l){return String(t||'')
+ .replaceAll('{NAME}',firstName(l.lead)||'')
+ .replaceAll('{PARTNER}',firstName(STATE.partner)||'')
+ .replaceAll('{VIDEO}',VIDEO)}
+function findT(id){return LIB.find(x=>x.id===id)}
+const PROFI_ERSTKONTAKT='Hey {NAME} 👋\n\nschön dass du dich gemeldet hast! Hier ist {PARTNER} vom LR Lifestyle Team.\n\nMeine KI-Assistentin Lina hat heute versucht dich telefonisch zu erreichen – hat leider nicht geklappt, gar kein Problem 🙂\n\nDamit ich dir genau das Richtige schicken kann: Wofür interessierst du dich?\n\n💰 Online-Business von zuhause\nNebenbei 250–2.000 € verdienen – ohne Druck, ohne Verpflichtungen, mit freier Zeiteinteilung. Du bekommst von mir persönlich Unterstützung, dazu KI-Hilfe und ein fast komplett automatisiertes System.\n\n🚗 Autokonzept\nFahr deinen Traumwagen bis zu 80 % günstiger – ohne Anzahlung. Über 50.000 Autos wurden bereits an LR-Partner übergeben.\n\n🚀 Oder beides\n\nSchreib mir einfach kurz was dich anspricht. Und: passt dir ein kurzes Telefonat (5–10 Min), oder soll ich dir vorab ein kurzes Info-Video schicken und wir telefonieren danach?\n\nViele suchen gerade ein zweites Standbein von zuhause – es ist einfacher als die meisten denken 💪\n\n{PARTNER}';
+const PROFI_MAILBOX='Hey {NAME} 👋\n\nhier ist {PARTNER}. Meine Assistentin Lina hat versucht dich zu erreichen – und ehrlich, ich erwisch dich auch immer nicht 😅 Kein Stress!\n\nIch schick dir mal das kurze Video (12 Min), da ist alles erklärt:\n{VIDEO}\n\nSchau\'s dir in Ruhe an – und dann lass uns kurz telefonieren. Ich hab heute noch 2-3 Termine frei, sonst morgen. Was passt dir besser?\n\n{PARTNER}';
+function recommended(l){
+ const k=cat(l),itr=interest(l)||'c';
+ const out=[];
+ if(k==='TERMIN'){
+  out.push({id:'custom_termin',typ:'text',t:'⭐ Termin-Bestätigung',u:'',
+   b:'Hallo {NAME} 👋 ich freue mich auf unser Gespräch! Schau dir vorab gern dieses Video an (12 Min), dann holen wir im Termin das Maximum raus: {VIDEO} Bis gleich! {PARTNER}'});
+  const v=findT('v3_termin');if(v)out.push(v);
+  return out;
+ }
+ if(k==='MAILBOX'){
+  out.push({id:'custom_mailbox',typ:'text',t:'⭐ Empfohlen: Nach Mailbox',u:'',b:PROFI_MAILBOX});
+ } else if(k==='VERPASST'){
+  out.push({id:'custom_verpasst',typ:'text',t:'⭐ Empfohlen: Nicht erreicht',u:'',b:PROFI_MAILBOX});
+ } else if(k==='NEU'){
+  out.push({id:'custom_neu',typ:'text',t:'⭐ Empfohlen: Erstkontakt',u:'',b:PROFI_ERSTKONTAKT});
+ } else if(k==='GESPROCHEN'){
+  out.push({id:'custom_gespr',typ:'text',t:'⭐ Empfohlen: Termin holen',u:'',b:'Hey {NAME} 👋 schön dass wir kurz gesprochen haben! Damit du einen kompletten Überblick hast, hier das Video (12 Min): {VIDEO} Wenn du magst, telefonieren wir danach in Ruhe – ich hab heute noch 2 Termine frei oder morgen. Wann passt\'s dir?'});
+ }
+ for(const n of stageNums(k)){
+  for(const t of LIB){if(t.typ==='text'&&t.id.startsWith(itr+n+'_')){out.push(t);break}}
+ }
+ const v=findT(k==='GESPROCHEN'?'v2_nach_video':'v1_erstkontakt');if(v)out.push(v);
+ return out;
+}
+function openTpl(ph,startCat){
+ const l=findLead(ph);if(!l)return;CURRENT=l;CURCAT=startCat||'emp';
+ $('#shTitle').textContent='Nachricht an '+firstName(l.lead||'');
+ const itr=interest(l);
+ $('#shSub').textContent=(itr?INTR[itr]+' · ':'')+'Texte werden automatisch mit Namen gefüllt.';
+ renderCats();renderTpls();
+ $('#ovl').classList.add('show');$('#sheet').classList.add('show');
+}
+function renderCats(){
+ const defs=[['emp','⭐ Empfohlen'],['a','🚗 Auto'],['b','💰 Business'],['c','🚀 Beides'],['v','🎙 Sprachskript'],['m','🎬 Videos'],['l','🔗 Links']];
+ $('#cats').innerHTML=defs.map(d=>'<div class="cat'+(CURCAT===d[0]?' on':'')+'" onclick="setCat(\''+d[0]+'\')">'+d[1]+'</div>').join('');
+}
+function setCat(c){CURCAT=c;renderCats();renderTpls()}
+function tplsFor(){
+ if(CURCAT==='emp')return recommended(CURRENT);
+ if(CURCAT==='v')return LIB.filter(t=>t.typ==='voice');
+ if(CURCAT==='m')return LIB.filter(t=>t.typ==='video');
+ if(CURCAT==='l')return LIB.filter(t=>t.typ==='link');
+ return LIB.filter(t=>t.id.startsWith(CURCAT)&&t.typ==='text');
+}
+function renderTpls(){
+ const l=CURRENT,arr=tplsFor();
+ let head='';
+ if(CURCAT==='v'){
+  const saved=getMyVoice();
+  head='<div class="myvoice">'
+   +'<h6>🎙️ Deine eigene Sprachnachricht</h6>'
+   +(saved
+     ?'<audio controls src="'+saved+'" style="width:100%;margin:6px 0"></audio>'
+      +'<div class="rowbtn" style="margin-top:6px"><a href="https://wa.me/'+digits(l.phone)+'" target="_blank" rel="noopener" onclick="logSend(\'eigene_voice\')">💬 WhatsApp zu '+esc(firstName(l.lead)||'Lead')+' öffnen</a></div>'
+      +'<div class="tip">📲 In WhatsApp: deine gespeicherte Sprachnachricht anhängen und senden. <a href="#" onclick="clearMyVoice();return false" style="color:#fca5a5">neu aufnehmen</a></div>'
+     :'<div class="tip">Nimm <b>einmal</b> eine persönliche Begrüßung auf – die kannst du dann immer wieder mitschicken. Wer sich (noch) nicht traut: nimm eins der Skripte unten.</div>'
+      +'<div class="rowbtn" style="margin-top:8px"><button onclick="recStart()" id="recBtn">🔴 Jetzt aufnehmen</button></div>'
+      +'<div id="recStatus" class="tip" style="margin-top:6px"></div>')
+   +'</div>';
+ }
+ $('#tpls').innerHTML=head+arr.map((t,i)=>{
+  if(t.typ==='voice'){
+   const sc=fill(t.b,l);
+   return '<div class="tpl"><h5>'+esc(t.t)+'</h5>'
+    +'<div class="voicebox"><h6>🎙 Skript zum Ablesen</h6><div class="script">'+esc(sc)+'</div>'
+    +'<div class="tip">💡 So geht&#39;s: WhatsApp öffnen → Mikrofon gedrückt halten → Skript locker ablesen. Klingt persönlicher als jeder Text!</div></div>'
+    +'<div class="rowbtn"><a href="https://wa.me/'+digits(l.phone)+'" target="_blank" rel="noopener" onclick="logSend(\''+t.id+'\')">🎙 WhatsApp öffnen &amp; einsprechen</a></div></div>';
+  }
+  const txt=fill(t.b,l)+(t.u&&t.typ!=='text'?'\n👉 '+t.u:'');
+  const wa='https://wa.me/'+digits(l.phone)+'?text='+encodeURIComponent(txt);
+  return '<div class="tpl"><h5>'+esc(t.t)+'</h5>'
+   +'<div class="pv" id="pv'+i+'">'+esc(txt)+'</div>'
+   +'<button class="pvmore" onclick="document.getElementById(\'pv'+i+'\').classList.toggle(\'full\')">ganzen Text zeigen</button>'
+   +'<div class="rowbtn"><a href="'+wa+'" target="_blank" rel="noopener" onclick="logSend(\''+t.id+'\')">💬 In WhatsApp senden</a></div></div>';
+ }).join('')||'<div class="empty">Keine Vorlagen hier.</div>';
+}
+/* ── Eigene Sprachnachricht: einmal aufnehmen, immer wiederverwenden ── */
+let MEDREC=null,RECCHUNKS=[];
+function getMyVoice(){try{return localStorage.getItem('lb_myvoice')||''}catch(e){return''}}
+function clearMyVoice(){try{localStorage.removeItem('lb_myvoice')}catch(e){}renderTpls();}
+async function recStart(){
+ const btn=$('#recBtn'),st=$('#recStatus');
+ if(MEDREC&&MEDREC.state==='recording'){MEDREC.stop();return}
+ try{
+  const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+  MEDREC=new MediaRecorder(stream);RECCHUNKS=[];
+  MEDREC.ondataavailable=e=>RECCHUNKS.push(e.data);
+  MEDREC.onstop=()=>{
+   const blob=new Blob(RECCHUNKS,{type:'audio/webm'});
+   const rd=new FileReader();
+   rd.onload=()=>{try{localStorage.setItem('lb_myvoice',rd.result);toast('🎙️ Sprachnachricht gespeichert!')}catch(e){toast('⚠️ Zu lang – kürzer aufnehmen')}renderTpls()};
+   rd.readAsDataURL(blob);
+   stream.getTracks().forEach(t=>t.stop());
+  };
+  MEDREC.start();btn.textContent='⏹ Stopp & speichern';st.innerHTML='🔴 Aufnahme läuft… sprich deine Begrüßung (max ~20 Sek).';
+ }catch(e){st.innerHTML='⚠️ Mikrofon-Zugriff nötig. Erlaube den Zugriff in deinem Browser.'}
+}
+function logSend(id){apiPost('nachfass',{aktion:'WhatsApp+Template',template_id:id,preview:''});
+ if(COACH_DONE_ID){markDone(COACH_DONE_ID);COACH_DONE_ID=null;confetti(false)}
+ setTimeout(closeSheet,500);toast('💬 Stark! Nachricht raus 💪')}
+function closeSheet(){$('#ovl').classList.remove('show');$('#sheet').classList.remove('show')}
+/* ════════ 🎯 DEIN TAG — KI-Coach ════════ */
+function todayKey(){const n=new Date();return 'lb_done_'+n.getFullYear()+('0'+(n.getMonth()+1)).slice(-2)+('0'+n.getDate()).slice(-2)}
+function getDone(){try{return JSON.parse(localStorage.getItem(todayKey())||'[]')}catch(e){return[]}}
+function markDone(id){const d=getDone();if(!d.includes(id)){d.push(id);
+ try{localStorage.setItem(todayKey(),JSON.stringify(d))}catch(e){};bumpStreak()}renderCoach();}
+function bumpStreak(){try{
+ const n=new Date();const today=n.toDateString();
+ const s=JSON.parse(localStorage.getItem('lb_streak')||'{}');
+ if(s.last===today)return;
+ const y=new Date(n);y.setDate(y.getDate()-1);
+ s.count=(s.last===y.toDateString())?(s.count||0)+1:1;s.last=today;
+ localStorage.setItem('lb_streak',JSON.stringify(s));
+}catch(e){}}
+function streak(){try{const s=JSON.parse(localStorage.getItem('lb_streak')||'{}');
+ const n=new Date();const y=new Date(n);y.setDate(y.getDate()-1);
+ if(s.last===n.toDateString()||s.last===y.toDateString())return s.count||0;return 0}catch(e){return 0}}
+function daysSince(ts){if(!ts)return 99;const m=String(ts).match(/(\d{4})-(\d{2})-(\d{2})/);if(!m)return 99;
+ return Math.floor((Date.now()-new Date(+m[1],+m[2]-1,+m[3]).getTime())/86400000)}
+function bestTpl(l,k){
+ const itr=interest(l)||'c';
+ if(k==='TERMIN')return{id:'custom_termin',b:'Hallo {NAME} 👋 freu mich auf unser Gespräch! Damit wir das Maximum rausholen, schau dir vorab die 12 Min an: {VIDEO} Bis gleich! {PARTNER}'};
+ if(k==='MAILBOX'||k==='VERPASST')return{id:'custom_nachfass',b:'Hey {NAME} 👋 hier ist {PARTNER}. Meine Assistentin Lina hat versucht dich zu erreichen – und ich erwisch dich auch immer nicht 😅 Kein Stress! Ich schick dir mal das kurze Video (12 Min), da ist alles erklärt: {VIDEO} Schau\'s dir an, und dann lass uns kurz telefonieren – ich hab heute noch 2-3 Termine frei, sonst morgen. Was passt dir besser?'};
+ if(k==='GESPROCHEN')return{id:'custom_gespr',b:'Hey {NAME} 👋 schön dass wir kurz gesprochen haben! Damit du einen kompletten Überblick hast, hier das Video (12 Min): {VIDEO} Wenn du magst, telefonieren wir danach in Ruhe – ich hab heute noch 2 Termine frei oder morgen. Wann passt\'s dir?'};
+ if(k==='WAKE')return{id:'custom_wake',b:'Hey {NAME} 👋 ich wollte mich nochmal melden – ganz ehrlich, ohne Druck. Falls es zeitlich gerade nicht passt, völlig ok. Falls du aber noch neugierig bist: Ich nehm gerade neue Partner auf und würde mich freuen, dir das kurz persönlich zu zeigen. Sag einfach Bescheid 🙂 {PARTNER}'};
+ const t=findT(itr+'1_erstkontakt');return t||{id:'custom_nachfass',b:'Hey {NAME} 👋 hier ist {PARTNER}. Schau dir das kurz an: {VIDEO} – danach lass uns telefonieren, ich hab heute oder morgen Zeit. Was passt?'};
+}
+function buildTasks(){
+ const T=[];
+ for(const l of STATE.leads){
+  const k=cat(l),ph=digits(l.phone),d=daysSince(l.ts),nm=firstName(l.lead)||'Lead';
+  if(k==='DONE')continue;
+  if(k==='TERMIN'&&l.termin&&terminToday(l.termin)){
+   T.push({id:'t_'+ph,ph,prio:0,fire:5,title:nm+' bestätigen',why:'<b>Termin HEUTE '+esc(fmtTermin(l.termin))+'.</b> Schick '+nm+' eine kurze persönliche Bestätigung – am besten als Sprachnachricht. Halbiert die Absprung-Quote.',k:'TERMIN'});
+  }else if(k==='GESPROCHEN'&&d<=3){
+   T.push({id:'g_'+ph,ph,prio:1,fire:4,title:nm+' zum Termin holen',why:'<b>Hat mit Lina gesprochen – jetzt kommst DU.</b> Eine persönliche Sprachnachricht + 2 Terminvorschläge (heute/morgen) bringen '+nm+' zum Gespräch.',k:'GESPROCHEN'});
+  }else if(k==='MAILBOX'&&d<=2){
+   T.push({id:'m_'+ph,ph,prio:2,fire:4,title:nm+' persönlich erreichen',why:'<b>Lina war auf der Mailbox.</b> Die meisten gehen erst beim 2. Mal ran – normal. Jetzt die persönliche Note: Sprachnachricht (\"ich erreich dich auch nicht 😅\") + Video + Termin.',k:'MAILBOX'});
+  }else if(k==='VERPASST'&&d<=2){
+   T.push({id:'v_'+ph,ph,prio:3,fire:3,title:nm+' Vertrauen aufbauen',why:'<b>Nicht erreicht – kein Problem.</b> Eine persönliche Sprachnachricht schafft das Vertrauen, das Lina nicht kann. Tipp: 12–16 Uhr heben die meisten ab.',k:'VERPASST'});
+  }else if(k==='TERMIN'&&l.termin&&!terminToday(l.termin)&&d<=1){
+   T.push({id:'tb_'+ph,ph,prio:4,fire:3,title:nm+' Vorfreude schicken',why:'<b>Frischer Termin: '+esc(fmtTermin(l.termin))+'.</b> Kurze persönliche Bestätigung = bester Start.',k:'TERMIN'});
+  }else if((k==='MAILBOX'||k==='VERPASST'||k==='GESPROCHEN')&&d>=4&&d<=14){
+   T.push({id:'w_'+ph,ph,prio:5,fire:2,title:nm+' aufwecken',why:'<b>Seit '+d+' Tagen Funkstille.</b> Eine ehrliche persönliche Nachricht holt stille Leads zurück.',k:'WAKE'});
+  }
+ }
+ T.sort((a,b)=>a.prio-b.prio||b.fire-a.fire);
+ return T.slice(0,5);
+}
+function confetti(big){
+ const em=['🎉','✨','🟢','💚','⭐','🥳'];
+ const n=big?34:16;
+ for(let i=0;i<n;i++){const e=document.createElement('div');e.className='cf';
+  e.textContent=em[Math.floor(Math.random()*em.length)];
+  e.style.left=(Math.random()*100)+'vw';e.style.animationDelay=(Math.random()*0.4)+'s';
+  document.body.appendChild(e);setTimeout(()=>e.remove(),2200)}
+}
+function coachSend(id,ph){
+ const l=findLead(ph);if(!l)return;CURRENT=l;
+ COACH_DONE_ID=id;
+ openTpl(ph);
+}
+async function coachLina(id,ph){
+ const l=findLead(ph);if(!l)return;CURRENT=l;
+ if(!confirm('🤖 Lina ruft jetzt '+(l.lead||'den Lead')+' an.\nErgebnis kommt per WhatsApp und hier ins Board.\n\nStarten?'))return;
+ const ok=await fireCall(l);
+ if(ok){markDone(id);confetti(false);toast('🤖 Lina übernimmt – Ergebnis kommt per WhatsApp')}
+ else toast('⚠️ Anruf konnte nicht gestartet werden – nochmal versuchen');
+}
+function coachDone(id){markDone(id);confetti(false);toast('✓ Erledigt!')}
+function renderCoach(){
+ const el=$('#coachwrap');if(!el)return;
+ const tasks=buildTasks(),done=getDone();
+ if(!tasks.length){el.innerHTML='';return}
+ const open=tasks.filter(t=>!done.includes(t.id));
+ const nd=tasks.length-open.length,pct=Math.round(nd/tasks.length*100);
+ const sk=streak();
+ let h='<div class="coach"><div class="ct">🎯 Dein Tag'
+  +(sk>0?'<span class="streak">🔥 '+sk+'-Tage-Serie</span>':'<span class="streak" style="color:#67e8f9;border-color:rgba(0,229,255,.3);background:rgba(0,229,255,.08)">⚡ Heute starten</span>')
+  +'</div>'
+  +'<div class="cs">'+(open.length?open.length+' Aufgaben · ~'+(open.length*2)+' Minuten · jede bringt dich näher zum Abschluss':'')+'</div>'
+  +'<div class="pbar"><i style="width:'+pct+'%"></i></div><div class="plabel">'+nd+' / '+tasks.length+' erledigt</div>';
+ if(!open.length){
+  h+='<div class="alldone">🏆 Alles erledigt, '+esc(STATE.partner.split(' ')[0])+'!<small>Du bist heute schneller als 95 % aller Networker. Bis morgen!</small></div>';
+ }else{
+  for(const t of tasks){
+   const dn=done.includes(t.id);
+   h+='<div class="task'+(dn?' dn':'')+'"><div class="tn">'+esc(t.title)+'<span class="fire">'+'🔥'.repeat(Math.min(t.fire,5))+'</span></div>'
+    +'<div class="why">'+t.why+'</div>'
+    +(dn?'':'<div class="tact">'
+     +'<button class="ta ta-send" onclick="coachSend(\''+t.id+'\',\''+t.ph+'\')">💬 Persönlich melden</button>'
+     +'<button class="ta ta-done" onclick="coachDone(\''+t.id+'\')">✓ Fertig</button></div>'
+     +'<button class="ta-linamini" onclick="coachLina(\''+t.id+'\',\''+t.ph+'\')">🤖 keine Zeit? Lina anrufen lassen</button>')
+    +'</div>';
+  }
+ }
+ h+='</div>';
+ el.innerHTML=h;
+ if(!open.length&&nd>0&&!window._celebrated){window._celebrated=true;confetti(true)}
+}
+load();
+</script>
+</body>
+</html>
