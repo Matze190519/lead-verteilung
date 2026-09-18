@@ -55,6 +55,24 @@ APP_URL               = os.getenv("APP_URL", "https://lead-verteilung.onrender.c
 LINA_WA_NUMBER        = os.getenv("LINA_WA_NUMBER", "4915170605019")
 STRIPE_PAYMENT_LINK   = os.getenv("STRIPE_PAYMENT_LINK", "")
 
+# ─── Stripe: NUR der LR-Zahlungslink darf Guthaben erzeugen ────────────────
+# Vorfall 18.09.2026: Zahlung über den Spanien-Link (1.815 €) wurde Lead-Guthaben.
+# Regel: Es gibt EINEN LR-Link (= STRIPE_PAYMENT_LINK, ist schon gesetzt).
+# Nur Zahlungen über diesen Link zählen. Jeder andere Link (Spanien usw.)
+# wird ignoriert und nur geloggt. Ist STRIPE_PAYMENT_LINK leer, zählt nichts.
+def _env_id_set(name: str) -> set:
+    return {x.strip() for x in os.getenv(name, "").split(",") if x.strip()}
+
+# Optional, nur falls man statt der URL direkt IDs hinterlegen will:
+STRIPE_LEAD_PRICE_IDS        = _env_id_set("STRIPE_LEAD_PRICE_IDS")         # price_...
+STRIPE_LEAD_PRODUCT_IDS      = _env_id_set("STRIPE_LEAD_PRODUCT_IDS")       # prod_...
+STRIPE_LEAD_PAYMENT_LINK_IDS = _env_id_set("STRIPE_LEAD_PAYMENT_LINK_IDS")  # plink_...
+
+# LR-Partnernummer: optional. Wenn Stripe eine liefert (Custom-Field/Metadata),
+# wird sie ins Sheet (Spalte J) geschrieben. Pflicht nur mit LR_PARTNERNUMMER_PFLICHT=1.
+LR_PARTNERNUMMER_PFLICHT = os.getenv("LR_PARTNERNUMMER_PFLICHT", "0").strip() == "1"
+LR_PARTNERNUMMER_REGEX   = os.getenv("LR_PARTNERNUMMER_REGEX", r"^\d{4,12}$")
+
 # ─── Konstanten ────────────────────────────────────────────
 LEAD_PREIS     = 5.0
 POLL_INTERVAL  = 60
@@ -551,6 +569,14 @@ def find_partner_by_email(email: str):
             return p
     return None
 
+# ─── Sperre: Partner ohne Telefonnummer ───────────────────
+def partner_hat_telefon(p: dict) -> bool:
+    """True nur wenn im Partner_Konto eine brauchbare Telefonnummer steht.
+    Ein Konto ohne Nummer darf NIE einen Lead bekommen und NIE belastet werden
+    (Vorfall 18.09.2026: Konto ohne Telefon bekam 2 Leads, WA-Versand scheiterte)."""
+    phone = re.sub(r"\D", "", str(p.get("phone", "") or ""))
+    return len(phone) >= 8
+
 # ─── Besten Partner finden ─────────────────────────────────
 def find_best_partner():
     all_records = get_all_partner_records()
@@ -559,6 +585,7 @@ def find_best_partner():
         p for p in all_records
         if p["status"].strip().lower() == "aktiv"
         and p["guthaben"] >= LEAD_PREIS
+        and partner_hat_telefon(p)
         and partner_ist_verfuegbar(p["zeitfenster"])
     ]
 
@@ -568,6 +595,7 @@ def find_best_partner():
             p for p in all_records
             if p["status"].strip().lower() == "aktiv"
             and p["guthaben"] >= LEAD_PREIS
+            and partner_hat_telefon(p)
         ]
         if aktive_mit_guthaben:
             logger.info("⏰ Partner vorhanden, aber keiner im aktuellen Zeitfenster – Lead wird NICHT verteilt")
@@ -650,12 +678,37 @@ def update_zeitfenster_im_sheet(phone: str, zeitfenster: str) -> bool:
         logger.error(f"❌ Zeitfenster-Update Fehler: {e}")
         return False
 
+# ─── LR-Partnernummer prüfen ─────────────────────────────
+def lr_partnernummer_gueltig(nr: str) -> bool:
+    """Gültig = passt auf LR_PARTNERNUMMER_REGEX (Default 4–12 Ziffern).
+    Leerzeichen und Bindestriche werden vorher entfernt."""
+    if not nr:
+        return False
+    clean = re.sub(r"[\s\-]", "", str(nr).strip())
+    return bool(re.match(LR_PARTNERNUMMER_REGEX, clean))
+
 # ─── Neuen Partner anlegen ────────────────────────────────
-def add_new_partner(name: str, email: str, phone_raw: str, guthaben: float):
-    """Legt neuen Partner an + generiert Token für Lead-Board. Returnt Token (oder '')."""
+def add_new_partner(name: str, email: str, phone_raw: str, guthaben: float, lr_partnernummer: str = ""):
+    """Legt neuen Partner an + generiert Token für Lead-Board. Returnt Token (oder '').
+
+    SPERRE (18.09.2026): Ohne Telefonnummer ODER ohne gültige LR-Partnernummer
+    wird KEIN Konto angelegt und kein Guthaben gebucht. Beides ist Pflicht.
+    """
+    phone = normalize_phone(phone_raw)
+    if not partner_hat_telefon({"phone": phone}):
+        logger.warning(
+            f"⛔ Konto NICHT angelegt (keine Telefonnummer): "
+            f"{name} | {email} | {guthaben:.2f}€ | LR: {lr_partnernummer or '-'}"
+        )
+        return ""
+    if LR_PARTNERNUMMER_PFLICHT and not lr_partnernummer_gueltig(lr_partnernummer):
+        logger.warning(
+            f"⛔ Konto NICHT angelegt (LR-Partnernummer fehlt/ungültig): "
+            f"{name} | {email} | {guthaben:.2f}€ | LR: '{lr_partnernummer or '-'}'"
+        )
+        return ""
     try:
         ws = get_partner_sheet()
-        phone = normalize_phone(phone_raw)
         now_str = datetime.now(BERLIN_TZ).strftime("%Y-%m-%d %H:%M:%S")
         # Token deterministisch ueber md5(name + SALT) — konsistent mit Make-Scenario 9296372
         import hashlib
@@ -670,8 +723,9 @@ def add_new_partner(name: str, email: str, phone_raw: str, guthaben: float):
             "Ganztag",
             email,
             token,  # Spalte 9 = Token für Lead-Board
+            re.sub(r"[\s\-]", "", str(lr_partnernummer).strip()),  # Spalte 10 (J) = LR_Partnernummer
         ])
-        logger.info(f"✅ Neuer Partner: {name} | {email} | {guthaben}€ | Token: {token[:8]}…")
+        logger.info(f"✅ Neuer Partner: {name} | {email} | {guthaben}€ | LR: {lr_partnernummer} | Token: {token[:8]}…")
         return token
     except Exception as e:
         logger.error(f"❌ Neuer Partner Fehler: {e}")
@@ -709,6 +763,15 @@ def process_lead(lead_data: dict):
     partner = find_best_partner()
     if not partner:
         logger.warning(f"⚠️ Kein Partner für Interessent '{lead_name}'")
+        return False
+
+    # Zweite Sperre (zusätzlich zum Filter in find_best_partner):
+    # Ein Konto ohne Telefonnummer wird NIE beliefert und NIE belastet.
+    if not partner_hat_telefon(partner):
+        logger.error(
+            f"⛔ Lead '{lead_name}' NICHT verteilt: Partner '{partner.get('name')}' "
+            f"(Zeile {partner.get('row_index')}) hat keine Telefonnummer – keine Abbuchung."
+        )
         return False
 
     neues_guthaben = partner["guthaben"] - LEAD_PREIS
@@ -806,6 +869,154 @@ def process_lead(lead_data: dict):
     )
     return True
 
+# ─── Stripe: Produkt-Erkennung + Weiße Liste ──────────────
+def _stripe_line_items(session: dict) -> list:
+    """Gibt die Line-Items einer Checkout-Session zurück.
+    Im Webhook-Event sind sie NICHT enthalten → per API nachladen (expand price.product).
+    Bei Fehler/fehlendem Key: leere Liste (→ Zahlung wird NICHT als Lead-Kauf erkannt)."""
+    li = session.get("line_items")
+    if isinstance(li, dict) and isinstance(li.get("data"), list):
+        return li["data"]
+    session_id = session.get("id", "")
+    if not session_id or not stripe.api_key:
+        return []
+    try:
+        resp = stripe.checkout.Session.list_line_items(
+            session_id, limit=20, expand=["data.price.product"]
+        )
+        data = resp.get("data") if isinstance(resp, dict) else getattr(resp, "data", None)
+        return list(data or [])
+    except Exception as e:
+        logger.error(f"❌ Stripe line_items nicht ladbar für {session_id}: {e}")
+        return []
+
+def stripe_session_produkt_ids(session: dict) -> dict:
+    """Extrahiert payment_link / price_ids / product_ids aus einer Session."""
+    def _g(obj, key, default=None):
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    price_ids, product_ids = set(), set()
+    for item in _stripe_line_items(session):
+        price = _g(item, "price") or {}
+        pid = _g(price, "id")
+        if isinstance(price, str):
+            pid = price
+        if pid:
+            price_ids.add(str(pid))
+        product = _g(price, "product") if not isinstance(price, str) else None
+        prod_id = product if isinstance(product, str) else _g(product, "id")
+        if prod_id:
+            product_ids.add(str(prod_id))
+
+    plink = session.get("payment_link") or ""
+    if isinstance(plink, dict):
+        plink = plink.get("id", "")
+    return {
+        "payment_link": str(plink or ""),
+        "price_ids":    price_ids,
+        "product_ids":  product_ids,
+    }
+
+_LEAD_PLINK_CACHE = ""
+
+def lead_payment_link_id() -> str:
+    """Liefert die Stripe-ID (plink_...) des LR-Links aus STRIPE_PAYMENT_LINK.
+    STRIPE_PAYMENT_LINK ist die URL (https://buy.stripe.com/...). Stripe schickt im
+    Webhook aber nur die ID. Deshalb einmalig per API die URL → ID auflösen (gecacht)."""
+    global _LEAD_PLINK_CACHE
+    if _LEAD_PLINK_CACHE:
+        return _LEAD_PLINK_CACHE
+    link = (STRIPE_PAYMENT_LINK or "").strip().rstrip("/")
+    if not link:
+        return ""
+    if link.startswith("plink_"):
+        _LEAD_PLINK_CACHE = link
+        return link
+    if not stripe.api_key:
+        return ""
+    try:
+        resp = stripe.PaymentLink.list(limit=100)
+        data = resp.get("data") if isinstance(resp, dict) else getattr(resp, "data", None)
+        for pl in data or []:
+            url = pl.get("url", "") if isinstance(pl, dict) else getattr(pl, "url", "")
+            pid = pl.get("id", "") if isinstance(pl, dict) else getattr(pl, "id", "")
+            if str(url).strip().rstrip("/") == link and pid:
+                _LEAD_PLINK_CACHE = str(pid)
+                logger.info(f"✅ LR-Zahlungslink erkannt: {link} → {pid}")
+                return _LEAD_PLINK_CACHE
+        logger.error(f"❌ STRIPE_PAYMENT_LINK {link} wurde in Stripe nicht gefunden")
+    except Exception as e:
+        logger.error(f"❌ Payment-Links nicht ladbar: {e}")
+    return ""
+
+def stripe_payment_ist_lead_kauf(session: dict) -> tuple:
+    """(True, info) nur wenn die Zahlung über den LR-Link lief.
+    LR-Link = STRIPE_PAYMENT_LINK (URL, wird zu plink_-ID aufgelöst).
+    Zusätzlich optional: STRIPE_LEAD_PAYMENT_LINK_IDS / PRICE_IDS / PRODUCT_IDS.
+    Ist nichts davon gesetzt: IMMER False (fail-closed)."""
+    info = stripe_session_produkt_ids(session)
+    plink_whitelist = set(STRIPE_LEAD_PAYMENT_LINK_IDS)
+    lr_plink = lead_payment_link_id()
+    if lr_plink:
+        plink_whitelist.add(lr_plink)
+    whitelist_leer = not (plink_whitelist or STRIPE_LEAD_PRICE_IDS or STRIPE_LEAD_PRODUCT_IDS)
+    if whitelist_leer:
+        info["grund"] = "STRIPE_PAYMENT_LINK (LR-Link) ist nicht gesetzt oder in Stripe nicht gefunden"
+        return False, info
+    if info["payment_link"] and info["payment_link"] in plink_whitelist:
+        return True, info
+    if info["price_ids"] & STRIPE_LEAD_PRICE_IDS:
+        return True, info
+    if info["product_ids"] & STRIPE_LEAD_PRODUCT_IDS:
+        return True, info
+    info["grund"] = "Produkt/Preis/Payment-Link nicht auf der Lead-Kauf-Whitelist"
+    return False, info
+
+def extract_lr_partnernummer(session: dict) -> str:
+    """LR-Partnernummer aus Stripe Custom-Fields (Payment-Link) oder Metadata.
+    Erkannt werden Felder, deren key/label 'partner' oder 'lr' enthält."""
+    for cf in session.get("custom_fields") or []:
+        key   = str(cf.get("key", "")).lower()
+        label = str((cf.get("label") or {}).get("custom", "")).lower()
+        if "partner" in key or "lr" in key or "partner" in label or "lr" in label:
+            for typ in ("text", "numeric"):
+                val = (cf.get(typ) or {}).get("value")
+                if val:
+                    return str(val).strip()
+    meta = session.get("metadata") or {}
+    for k in ("lr_partnernummer", "partnernummer", "lr_nummer", "lr_partner_nr", "partner_nr"):
+        if meta.get(k):
+            return str(meta[k]).strip()
+    return ""
+
+def log_stripe_zahlung_ignoriert(session: dict, betrag: float, email: str, name: str, info: dict, grund: str):
+    """Ignorierte Zahlung NUR loggen (Betrag, Produkt-ID, Zahler-Email) + Admin informieren.
+    Es wird KEIN Konto angelegt und KEIN Guthaben gebucht."""
+    produkt = (
+        ", ".join(sorted(info.get("product_ids") or [])) or
+        ", ".join(sorted(info.get("price_ids") or [])) or
+        info.get("payment_link") or "unbekannt"
+    )
+    logger.warning(
+        f"⛔ STRIPE-ZAHLUNG IGNORIERT | Betrag: {betrag:.2f}€ | Produkt-ID: {produkt} | "
+        f"Price-IDs: {sorted(info.get('price_ids') or [])} | "
+        f"Payment-Link: {info.get('payment_link') or '-'} | "
+        f"Zahler-Email: {email or '-'} | Name: {name} | "
+        f"Session: {session.get('id', '-')} | Grund: {grund}"
+    )
+    send_whatsapp(
+        MATZE_PHONE,
+        f"⛔ *Stripe-Zahlung ignoriert (kein Lead-Kauf)*\n\n"
+        f"💰 Betrag: {betrag:.2f}€\n"
+        f"📦 Produkt-ID: {produkt}\n"
+        f"📧 Zahler: {email or '-'} ({name})\n"
+        f"ℹ️ {grund}\n\n"
+        f"Es wurde KEIN Partnerkonto angelegt und KEIN Guthaben gebucht.",
+        _skip_admin=True
+    )
+
 # ─── Stripe Webhook Verarbeitung ──────────────────────────
 def process_stripe_payment(session: dict):
     try:
@@ -814,6 +1025,15 @@ def process_stripe_payment(session: dict):
         betrag       = amount_cents / 100.0
         name         = session.get("customer_details", {}).get("name", "Unbekannt")
         phone_raw    = session.get("customer_details", {}).get("phone", "")
+
+        # ── Sperre 1: Weiße Liste – nur das Lead-Kauf-Produkt erzeugt Guthaben ──
+        ist_lead_kauf, produkt_info = stripe_payment_ist_lead_kauf(session)
+        if not ist_lead_kauf:
+            log_stripe_zahlung_ignoriert(
+                session, betrag, email, name, produkt_info,
+                produkt_info.get("grund", "nicht auf Whitelist")
+            )
+            return
 
         if not email:
             logger.warning("Stripe: Keine E-Mail in Session")
@@ -874,9 +1094,48 @@ def process_stripe_payment(session: dict):
 
         else:
             # ── Neuer Partner ──
-            new_token = add_new_partner(name, email, phone_raw, betrag)
+            # Sperre 2: Ohne Telefonnummer wird KEIN Konto angelegt und KEIN
+            # Guthaben gebucht. LR-Partnernummer nur Pflicht mit LR_PARTNERNUMMER_PFLICHT=1.
+            partner_phone    = normalize_phone(phone_raw)
+            lr_partnernummer = extract_lr_partnernummer(session)
+            fehlt = []
+            if not partner_hat_telefon({"phone": partner_phone}):
+                fehlt.append("Telefonnummer")
+            if LR_PARTNERNUMMER_PFLICHT and not lr_partnernummer_gueltig(lr_partnernummer):
+                fehlt.append("gültige LR-Partnernummer")
+            if fehlt:
+                grund = "Kein Konto angelegt – es fehlt: " + " + ".join(fehlt)
+                logger.warning(
+                    f"⛔ KONTO NICHT ANGELEGT | {grund} | Betrag: {betrag:.2f}€ | "
+                    f"Email: {email} | Name: {name} | Telefon: '{partner_phone or '-'}' | "
+                    f"LR: '{lr_partnernummer or '-'}' | Session: {session.get('id', '-')}"
+                )
+                send_whatsapp(
+                    MATZE_PHONE,
+                    f"⛔ *Stripe-Zahlung: Konto NICHT angelegt*\n\n"
+                    f"👤 Name: {name}\n"
+                    f"📧 Email: {email}\n"
+                    f"📱 Telefon: {partner_phone or 'FEHLT'}\n"
+                    f"🔢 LR-Partnernummer: {lr_partnernummer or 'FEHLT'}\n"
+                    f"💰 Betrag: {betrag:.2f}€\n\n"
+                    f"{grund}.\n"
+                    f"Kein Guthaben gebucht – bitte manuell prüfen.",
+                    _skip_admin=True
+                )
+                return
 
-            partner_phone = normalize_phone(phone_raw)
+            new_token = add_new_partner(name, email, phone_raw, betrag, lr_partnernummer)
+            if not new_token:
+                # add_new_partner hat selbst abgelehnt oder Sheet-Fehler – kein Konto, keine Willkommens-WA
+                logger.error(f"❌ Konto für {email} konnte nicht angelegt werden – Abbruch, keine Buchung.")
+                send_whatsapp(
+                    MATZE_PHONE,
+                    f"🚨 *Stripe: Konto konnte nicht angelegt werden*\n\n"
+                    f"👤 {name} | 📧 {email} | 💰 {betrag:.2f}€\n"
+                    f"Bitte manuell prüfen.",
+                    _skip_admin=True
+                )
+                return
 
             # Board-Link nur einbauen wenn Token erfolgreich generiert
             board_link_block = ""
