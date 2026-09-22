@@ -1,6 +1,6 @@
 
 # ============================================================
-# Lead-Verteilungs-Service v8.0
+# Lead-Verteilungs-Service v8.1
 # ============================================================
 # Basis: v4.9 (stabil) + v6.3 + alle Fixes
 # ============================================================
@@ -1727,13 +1727,13 @@ def validate_sheet_headers():
         return False
 
 # ─── FastAPI App ───────────────────────────────────────────
-app = FastAPI(title="Lead-Verteilungs-Service v8.0")
+app = FastAPI(title="Lead-Verteilungs-Service v8.1")
 
 @app.get("/")
 def root():
     return {
         "service":  "Lead-Verteilungs-Service",
-        "version":  "8.0",
+        "version":  "8.1",
         "status":   "running",
         "sheets": {
             "leads":   LEADS_SHEET_NAME,
@@ -1745,9 +1745,10 @@ def root():
 @app.get("/health")
 def health():
     return {
-        "status":    "ok",
-        "version":   "8.0",
-        "timestamp": datetime.now(BERLIN_TZ).isoformat()
+        "status":       "ok",
+        "version":      "8.1",
+        "stripe_guard": True,   # Nur LR-Link erzeugt Guthaben, kein Konto ohne Telefon
+        "timestamp":    datetime.now(BERLIN_TZ).isoformat()
     }
 
 @app.get("/status")
@@ -1757,9 +1758,12 @@ def status_check():
         aktive = [p for p in all_records if p["status"].strip().lower() == "aktiv"]
         return {
             "status": "ok",
-            "version": "8.0",
+            "version": "8.1",
             "partner_gesamt": len(all_records),
             "partner_aktiv": len(aktive),
+            "stripe_guard": True,
+            "lr_link_erkannt": bool(lead_payment_link_id()),
+            "webhook_signatur_aktiv": bool(STRIPE_WEBHOOK_SECRET),
             "timestamp": datetime.now(BERLIN_TZ).isoformat()
         }
     except Exception as e:
@@ -2135,15 +2139,27 @@ def startup_event():
     alive_thread.start()
     logger.info("💓 Keep-Alive-Thread gestartet")
 
+    # Stripe-Schutz beim Start pruefen (LR-Link aufloesen, Signatur-Check)
+    lr_link_ok = bool(lead_payment_link_id())
+    if not lr_link_ok:
+        logger.error("❌ STRIPE_PAYMENT_LINK fehlt oder nicht in Stripe gefunden – KEINE Zahlung erzeugt Guthaben!")
+    if not STRIPE_WEBHOOK_SECRET:
+        logger.error("❌ STRIPE_WEBHOOK_SECRET fehlt – Webhook-Signatur wird NICHT geprüft!")
+    lr_link_emoji = "✅" if lr_link_ok else "❌"
+    sig_emoji     = "✅" if STRIPE_WEBHOOK_SECRET else "❌"
+
     # Startmeldung an Matze
     header_emoji = "✅" if header_ok else "❌"
     send_whatsapp(
         MATZE_PHONE,
-        f"🚀 *Lead-System v8.0 gestartet!*\n\n"
+        f"🚀 *Lead-System v8.1 gestartet!*\n\n"
         f"✅ Polling aktiv (alle {POLL_INTERVAL}s)\n"
         f"✅ Facebook-Tab Sync aktiv (alle neuen Tabs werden erkannt)\n"
         f"✅ Tages-Erinnerung aktiv (08:00 Berlin)\n"
-        f"✅ Stripe Webhook aktiv\n"
+        f"✅ Stripe-Schutz: NUR LR-Link erzeugt Guthaben, Espania wird ignoriert\n"
+        f"{lr_link_emoji} LR-Zahlungslink in Stripe erkannt\n"
+        f"{sig_emoji} Stripe Webhook-Signatur geprüft\n"
+        f"✅ Kein Konto ohne Telefon, keine Leads an Konten ohne Telefon\n"
         f"✅ Zeitfenster-Links aktiv\n"
         f"✅ Admin-Infos bei jeder Aktion\n"
         f"✅ Auto-Erkennung Email/Name/Phone\n"
