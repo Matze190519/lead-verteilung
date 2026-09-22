@@ -920,35 +920,55 @@ def stripe_session_produkt_ids(session: dict) -> dict:
     }
 
 _LEAD_PLINK_CACHE = ""
+_LEAD_PLINK_GRUND = ""   # Diagnose fuer /status, warum der LR-Link (nicht) erkannt wurde
+
+def _norm_link(url: str) -> str:
+    """URL vergleichbar machen: ohne Schema, www., Query, Slash am Ende, kleingeschrieben."""
+    u = str(url or "").strip().lower()
+    u = re.sub(r"^https?://", "", u)
+    u = re.sub(r"^www\.", "", u)
+    u = u.split("?")[0].split("#")[0].rstrip("/")
+    return u
 
 def lead_payment_link_id() -> str:
     """Liefert die Stripe-ID (plink_...) des LR-Links aus STRIPE_PAYMENT_LINK.
     STRIPE_PAYMENT_LINK ist die URL (https://buy.stripe.com/...). Stripe schickt im
     Webhook aber nur die ID. Deshalb einmalig per API die URL → ID auflösen (gecacht)."""
-    global _LEAD_PLINK_CACHE
+    global _LEAD_PLINK_CACHE, _LEAD_PLINK_GRUND
     if _LEAD_PLINK_CACHE:
         return _LEAD_PLINK_CACHE
     link = (STRIPE_PAYMENT_LINK or "").strip().rstrip("/")
     if not link:
+        _LEAD_PLINK_GRUND = "STRIPE_PAYMENT_LINK ist auf Render nicht gesetzt"
         return ""
     if link.startswith("plink_"):
         _LEAD_PLINK_CACHE = link
+        _LEAD_PLINK_GRUND = "ID direkt gesetzt"
         return link
     if not stripe.api_key:
+        _LEAD_PLINK_GRUND = "STRIPE_SECRET_KEY ist auf Render nicht gesetzt"
         return ""
     try:
         resp = stripe.PaymentLink.list(limit=100)
         data = resp.get("data") if isinstance(resp, dict) else getattr(resp, "data", None)
+        gefunden = []
         for pl in data or []:
             url = pl.get("url", "") if isinstance(pl, dict) else getattr(pl, "url", "")
             pid = pl.get("id", "") if isinstance(pl, dict) else getattr(pl, "id", "")
-            if str(url).strip().rstrip("/") == link and pid:
+            gefunden.append(str(url))
+            if _norm_link(url) == _norm_link(link) and pid:
                 _LEAD_PLINK_CACHE = str(pid)
+                _LEAD_PLINK_GRUND = f"erkannt als {pid}"
                 logger.info(f"✅ LR-Zahlungslink erkannt: {link} → {pid}")
                 return _LEAD_PLINK_CACHE
-        logger.error(f"❌ STRIPE_PAYMENT_LINK {link} wurde in Stripe nicht gefunden")
+        _LEAD_PLINK_GRUND = (
+            f"STRIPE_PAYMENT_LINK ({link}) passt zu keinem der {len(gefunden)} Payment-Links "
+            f"im Stripe-Konto des STRIPE_SECRET_KEY. Vorhanden: {', '.join(gefunden) or '-'}"
+        )
+        logger.error(f"❌ {_LEAD_PLINK_GRUND}")
     except Exception as e:
-        logger.error(f"❌ Payment-Links nicht ladbar: {e}")
+        _LEAD_PLINK_GRUND = f"Stripe-API Fehler beim Laden der Payment-Links: {str(e)[:200]}"
+        logger.error(f"❌ {_LEAD_PLINK_GRUND}")
     return ""
 
 def stripe_payment_ist_lead_kauf(session: dict) -> tuple:
@@ -1733,7 +1753,7 @@ app = FastAPI(title="Lead-Verteilungs-Service v8.1")
 def root():
     return {
         "service":  "Lead-Verteilungs-Service",
-        "version":  "8.1",
+        "version":  "8.1.1",
         "status":   "running",
         "sheets": {
             "leads":   LEADS_SHEET_NAME,
@@ -1746,7 +1766,7 @@ def root():
 def health():
     return {
         "status":       "ok",
-        "version":      "8.1",
+        "version":      "8.1.1",
         "stripe_guard": True,   # Nur LR-Link erzeugt Guthaben, kein Konto ohne Telefon
         "timestamp":    datetime.now(BERLIN_TZ).isoformat()
     }
@@ -1758,11 +1778,12 @@ def status_check():
         aktive = [p for p in all_records if p["status"].strip().lower() == "aktiv"]
         return {
             "status": "ok",
-            "version": "8.1",
+            "version": "8.1.1",
             "partner_gesamt": len(all_records),
             "partner_aktiv": len(aktive),
             "stripe_guard": True,
             "lr_link_erkannt": bool(lead_payment_link_id()),
+            "lr_link_grund": _LEAD_PLINK_GRUND,
             "webhook_signatur_aktiv": bool(STRIPE_WEBHOOK_SECRET),
             "timestamp": datetime.now(BERLIN_TZ).isoformat()
         }

@@ -95,6 +95,7 @@ def calls(monkeypatch):
 @pytest.fixture(autouse=True)
 def _reset_cache(monkeypatch):
     monkeypatch.setattr(app, "_LEAD_PLINK_CACHE", "")
+    monkeypatch.setattr(app, "_LEAD_PLINK_GRUND", "")
     monkeypatch.setattr(app, "STRIPE_PAYMENT_LINK", "")
     monkeypatch.setattr(app, "LR_PARTNERNUMMER_PFLICHT", False)
 
@@ -156,6 +157,26 @@ class TestPunkt3WeisseListe:
         app.process_stripe_payment(s)
         assert len(calls["append_row"]) == 1
         assert calls["append_row"][0][2] == 50.0
+
+    @pytest.mark.parametrize("env_url", [
+        "https://buy.stripe.com/LR_LEADS",
+        "https://buy.stripe.com/LR_LEADS/",
+        "http://buy.stripe.com/LR_LEADS",
+        "buy.stripe.com/LR_LEADS",
+        "https://buy.stripe.com/lr_leads?locale=de",
+        "  https://www.buy.stripe.com/LR_LEADS  ",
+    ])
+    def test_einfach_lr_link_wird_trotz_schreibweise_erkannt(self, monkeypatch, calls, nur_lr_link_url, keine_partner, env_url):
+        """Schema, www., Slash, Query, Gross/Klein duerfen den Abgleich nicht kaputt machen."""
+        monkeypatch.setattr(app, "STRIPE_PAYMENT_LINK", env_url)
+        assert app.lead_payment_link_id() == LEAD_PLINK
+        assert "erkannt" in app._LEAD_PLINK_GRUND
+
+    def test_einfach_link_passt_nicht_liefert_diagnose(self, monkeypatch, calls, nur_lr_link_url, keine_partner):
+        monkeypatch.setattr(app, "STRIPE_PAYMENT_LINK", "https://buy.stripe.com/GIBTS_NICHT")
+        assert app.lead_payment_link_id() == ""
+        assert "passt zu keinem" in app._LEAD_PLINK_GRUND
+        assert "https://buy.stripe.com/LR_LEADS" in app._LEAD_PLINK_GRUND
 
     def test_einfach_lr_link_wird_nur_einmal_aufgeloest(self, calls, nur_lr_link_url, keine_partner):
         s = session_lead_kauf(lr=None)
