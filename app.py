@@ -34,6 +34,9 @@ import stripe
 import pytz
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse
+from starlette.concurrency import run_in_threadpool
+from urllib.parse import parse_qs
+import html as _html
 from google.oauth2.service_account import Credentials
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -1863,17 +1866,39 @@ async def stripe_webhook(request: Request):
         logger.error(f"❌ Stripe-Webhook Fehler: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/zeitfenster")
-def zeitfenster_waehlen(phone: str, wahl: str):
-    erlaubt = ["Ganztag", "Vormittag", "Nachmittag", "Abend"]
-    if wahl not in erlaubt:
-        return HTMLResponse(content=f"""
-        <html><body style="font-family:Arial;text-align:center;
-        padding:50px;background:#fff0f0">
-        <h1>❌ Ungültige Wahl</h1>
-        <p>Erlaubte Werte: {', '.join(erlaubt)}</p>
-        </body></html>""")
+# 07.11.2026 (Matze: "Ja render"): Um 08:00 hat ein automatischer Link-Abruf (Vorschau/Scanner) die Links aus der
+# Morgen-Nachricht geoeffnet und Matzes Zeitfenster per GET von Ganztag auf Nachmittag/Abend umgestellt.
+# Jetzt: GET zeigt nur eine Bestaetigungsseite, gespeichert wird erst mit dem Knopf (POST). Links in den Nachrichten bleiben gleich.
+ZF_ERLAUBT = ["Ganztag", "Vormittag", "Nachmittag", "Abend"]
 
+def _zf_seite(farbe: str, inhalt: str) -> HTMLResponse:
+    return HTMLResponse(content=f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<title>Zeitfenster</title></head>
+<body style="font-family:Arial,sans-serif;text-align:center;padding:40px 16px;background:{farbe}">
+{inhalt}
+</body></html>""")
+
+def _zf_ungueltig() -> HTMLResponse:
+    return _zf_seite("#fff0f0", f"<h1>❌ Ungültige Wahl</h1><p>Erlaubte Werte: {', '.join(ZF_ERLAUBT)}</p>")
+
+@app.get("/zeitfenster")
+def zeitfenster_waehlen(phone: str = "", wahl: str = ""):
+    # Nur anzeigen, nichts speichern – automatische Abrufe aendern so nichts mehr
+    if wahl not in ZF_ERLAUBT:
+        return _zf_ungueltig()
+    zf_text = ZEITFENSTER_TEXT.get(wahl.strip().lower(), wahl)
+    return _zf_seite("#f5f7f5", f"""
+<h1>⏰ Zeitfenster ändern?</h1>
+<p style="font-size:18px">Neues Zeitfenster: <b>{_html.escape(zf_text)}</b></p>
+<form method="post" action="/zeitfenster">
+<input type="hidden" name="phone" value="{_html.escape(phone, quote=True)}">
+<input type="hidden" name="wahl" value="{wahl}">
+<button type="submit" style="font-size:20px;padding:16px 28px;min-height:56px;background:#25D366;color:#fff;border:0;border-radius:12px">✅ Ja, so speichern</button>
+</form>
+<p style="color:gray;font-size:14px;margin-top:20px">Erst mit dem Knopf wird gespeichert.<br>Doch nicht? Einfach das Fenster schließen.</p>""")
+
+def _zf_speichern(phone: str, wahl: str) -> HTMLResponse:
     success = update_zeitfenster_im_sheet(phone, wahl)
     zf_text = ZEITFENSTER_TEXT.get(wahl.strip().lower(), wahl)
 
@@ -1884,28 +1909,28 @@ def zeitfenster_waehlen(phone: str, wahl: str):
             f"⏰ Du erhältst Leads: *{zf_text}*\n\n"
             f"Ändern? Einfach erneut einen Link antippen."
         )
-        return HTMLResponse(content=f"""
-        <html><body style="font-family:Arial;text-align:center;
-        padding:50px;background:#f0f8f0">
-        <h1>✅ Gespeichert!</h1>
-        <h2>Zeitfenster: <b>{wahl}</b></h2>
-        <p>Du erhältst Leads: <b>{zf_text}</b></p>
-        <p>Du bekommst gleich eine WhatsApp-Bestätigung. 📱</p>
-        <br>
-        <a href="https://wa.me/{LINA_WA_NUMBER}" style="
-        display:inline-block;padding:15px 30px;background:#25D366;
-        color:white;text-decoration:none;border-radius:10px;
-        font-size:18px">💬 Lina schreiben</a>
-        <p style="color:gray;font-size:14px;margin-top:20px">
-        Dieses Fenster kann geschlossen werden.</p>
-        </body></html>""")
+        return _zf_seite("#f0f8f0", f"""
+<h1>✅ Gespeichert!</h1>
+<h2>Zeitfenster: <b>{wahl}</b></h2>
+<p>Du erhältst Leads: <b>{_html.escape(zf_text)}</b></p>
+<p>Du bekommst gleich eine WhatsApp-Bestätigung. 📱</p>
+<br>
+<a href="https://wa.me/{LINA_WA_NUMBER}" style="display:inline-block;padding:15px 30px;background:#25D366;color:white;text-decoration:none;border-radius:10px;font-size:18px">💬 Lina schreiben</a>
+<p style="color:gray;font-size:14px;margin-top:20px">Dieses Fenster kann geschlossen werden.</p>""")
 
-    return HTMLResponse(content="""
-    <html><body style="font-family:Arial;text-align:center;
-    padding:50px;background:#fff0f0">
-    <h1>⚠️ Partner nicht gefunden</h1>
-    <p>Bitte Matze kontaktieren: wa.me/491715060008</p>
-    </body></html>""")
+    return _zf_seite("#fff0f0", """
+<h1>⚠️ Partner nicht gefunden</h1>
+<p>Bitte Matze kontaktieren: wa.me/491715060008</p>""")
+
+@app.post("/zeitfenster")
+async def zeitfenster_speichern(request: Request):
+    daten = parse_qs((await request.body()).decode("utf-8", "replace"))
+    phone = (daten.get("phone") or [""])[0].strip()
+    wahl = (daten.get("wahl") or [""])[0].strip()
+    if wahl not in ZF_ERLAUBT:
+        return _zf_ungueltig()
+    # Google Sheets und WhatsApp blockieren – deshalb im Threadpool wie bei den normalen def-Routen
+    return await run_in_threadpool(_zf_speichern, phone, wahl)
 
 @app.post("/poll")
 def manual_poll():
